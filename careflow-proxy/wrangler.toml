@@ -1,0 +1,8 @@
+name = "careflow-proxy"
+main = "src/index.js"
+compatibility_date = "2024-11-06"
+
+[vars]
+# Environment variables go here
+
+# Secrets are managed via: wrangler secret put GROQ_API_KEY

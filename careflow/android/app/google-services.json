@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "500063550164",
-    "project_id": "myappse04",
-    "storage_bucket": "myappse04.firebasestorage.app"
+    "project_number": "239209641211",
+    "project_id": "careflow-2004",
+    "storage_bucket": "careflow-2004.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:500063550164:android:c78246acdc0376ed2dd941",
+        "mobilesdk_app_id": "1:239209641211:android:3772c5b873fd9e0a4e6c5e",
         "android_client_info": {
           "package_name": "com.example.careflow"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAsc2iakdF7Dm-jzq5Aw0fDl3yx8Xla-So"
+          "current_key": "AIzaSyDm6tyV2exHsokov0My3qQlEli30RvPhVI"
         }
       ],
       "services": {

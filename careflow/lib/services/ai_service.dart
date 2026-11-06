@@ -5,8 +5,8 @@ import 'database_service.dart';
 import 'package:geolocator/geolocator.dart';
 
 class AiService {
-  final String _apiUrl = "https://api.groq.com/openai/v1/chat/completions";
-  late final String _apiKey;
+  final String _apiUrl =
+      "https://careflow-proxy.qsya374.workers.dev";
   final http.Client _httpClient;
   final DatabaseService _db = DatabaseService();
   final List<Map<String, dynamic>> _chatHistory = [];
@@ -107,18 +107,11 @@ class AiService {
       }
     }
   ];
-  // دالة البناء (Constructor). تسمح لنا بتمرير متغيرات اختيارية (مثل httpClient أو apiKey) عند إنشاء هذه الخدمة
+  // GROQ API key is now handled by the Firebase Cloud Functions proxy.
+  // The Flutter app no longer sends Groq API keys directly.
   AiService({http.Client? httpClient, String? apiKey})
       // تهيئة الأداة: إذا تم تمرير httpClient نستخدمه، وإلا (علامة ??) ننشئ نسخة جديدة (http.Client()) كقيمة افتراضية
       : _httpClient = httpClient ?? http.Client() {
-    const keyFromEnv = String.fromEnvironment('GROQ_API_KEY');
-    final key = apiKey ??
-        (keyFromEnv.isNotEmpty ? keyFromEnv : dotenv.env['GROQ_API_KEY']);
-    if (key == null || key.isEmpty) {
-      throw Exception(
-          'API Key for Groq is missing! Please provide it using --dart-define=GROQ_API_KEY=your_key or in a .env file.');
-    }
-    _apiKey = key.trim();
     // جلب تاريخ اليوم الفعلي فقط (بدون الوقت) لكي نعطيه للذكاء الاصطناعي ليعرف تاريخ اليوم (مثلاً 2026-06-22)
     String todayDate = DateTime.now().toString().split(' ')[0];
 
@@ -174,7 +167,7 @@ RULES:
       final response = await _httpClient.post( // أرسل طلب (POST) عبر الإنترنت إلى خادم الذكاء الاصطناعي وانتظر الرد
         Uri.parse(_apiUrl), // حوّل الرابط النصي إلى رابط قابل للاستخدام
         headers: { // ديباجة الطلب (معلومات للخادم قبل المحتوى)
-          "Authorization": "Bearer $_apiKey", // كلمة السر (مفتاح الـ API) لإثبات هوية التطبيق للخادم
+           // كلمة السر (مفتاح الـ API) لإثبات هوية التطبيق للخادم
           "Content-Type": "application/json", // إخبار الخادم أن لغتنا ستكون جيسون (JSON)
         },
         body: jsonEncode({ // محتوى الطلب: حوّله من Map إلى نص JSON قبل الإرسال
@@ -285,7 +278,7 @@ RULES:
           final secondResponse = await _httpClient.post(
             Uri.parse(_apiUrl),
             headers: {
-              "Authorization": "Bearer $_apiKey",
+              
               "Content-Type": "application/json",
             },
             body: jsonEncode({
