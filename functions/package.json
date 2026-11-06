@@ -1,6 +1,6 @@
 {
   "name": "functions",
-  "description": "Firebase Cloud Functions for DocTime app",
+  "description": "Firebase Cloud Functions for CareFlow app",
   "main": "index.js",
   "scripts": {
     "serve": "firebase emulators:start --only functions",
