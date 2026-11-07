@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import 'database_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -107,9 +106,9 @@ class AiService {
       }
     }
   ];
-  // GROQ API key is now handled by the Firebase Cloud Functions proxy.
-  // The Flutter app no longer sends Groq API keys directly.
-  AiService({http.Client? httpClient, String? apiKey})
+  // GroQ API key is handled server-side by the Cloudflare Worker proxy.
+  // The Flutter app never sends Groq API keys directly.
+  AiService({http.Client? httpClient})
       // تهيئة الأداة: إذا تم تمرير httpClient نستخدمه، وإلا (علامة ??) ننشئ نسخة جديدة (http.Client()) كقيمة افتراضية
       : _httpClient = httpClient ?? http.Client() {
     // جلب تاريخ اليوم الفعلي فقط (بدون الوقت) لكي نعطيه للذكاء الاصطناعي ليعرف تاريخ اليوم (مثلاً 2026-06-22)

@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart'; // لجلب الـ UID عند
 //لاستقبال الإشعارات من سيرفرات فايربيس
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'auth_wrapper.dart';
 import 'services/database_service.dart'; // لحفظ الـ FCM Token عند تحديثه
@@ -62,7 +61,6 @@ void handleNotificationNavigation(RemoteMessage message) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await dotenv.load(fileName: ".env");
   await Firebase.initializeApp();
 
   FirebaseMessaging messaging = FirebaseMessaging

@@ -65,10 +65,8 @@ http.Client _mockGroqClient(String aiJsonContent, {int statusCode = 200}) {
       ));
 }
 
-/// Constructs a real [AiService] injected with [client] and a test API key,
-/// bypassing flutter_dotenv entirely.
-AiService _service(http.Client client) =>
-    AiService(httpClient: client, apiKey: 'test-key');
+/// Constructs a real [AiService] injected with [client].
+AiService _service(http.Client client) => AiService(httpClient: client);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests
