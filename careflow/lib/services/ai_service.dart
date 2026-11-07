@@ -6,6 +6,60 @@ import 'package:geolocator/geolocator.dart';
 class AiService {
   final String _apiUrl =
       "https://careflow-proxy.qsya374.workers.dev";
+
+  /// Extracts exactly ONE JSON object from messy model output.
+  /// Handles: markdown fences, commentary before/after JSON,
+  /// and the failure mode where the model concatenates two objects
+  /// like `{"a":1}{"a":2}` — only the first is returned.
+  String _cleanAiJsonString(dynamic raw) {
+    const fallback =
+        '{"status":"asking","message":"I am having trouble responding right now. Could you try again?","urgency":"none","specialty":"none"}';
+    if (raw == null) return fallback;
+    String text = raw.toString().trim();
+    if (text.isEmpty) return fallback;
+
+    // Strip markdown code fences if present.
+    if (text.startsWith('```')) {
+      final firstNl = text.indexOf('\n');
+      final lastFence = text.lastIndexOf('```');
+      if (firstNl != -1 && lastFence > firstNl) {
+        text = text.substring(firstNl + 1, lastFence).trim();
+      }
+    }
+
+    final start = text.indexOf('{');
+    if (start == -1) return fallback;
+
+    // Scan for the matching '}' for the first '{', respecting strings.
+    int depth = 0;
+    bool inString = false;
+    bool escape = false;
+    for (int i = start; i < text.length; i++) {
+      final c = text[i];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (c == r'\') {
+        escape = inString;
+        continue;
+      }
+      if (c == '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (c == '{') depth++;
+      if (c == '}') {
+        depth--;
+        if (depth == 0) {
+          return text.substring(start, i + 1);
+        }
+      }
+    }
+    return fallback;
+  }
+
   final http.Client _httpClient;
   final DatabaseService _db = DatabaseService();
   final List<Map<String, dynamic>> _chatHistory = [];
@@ -155,6 +209,7 @@ RULES:
 
 13. UI STATE LOCK: During this ENTIRE flow (Triage -> Search -> Availability -> Booking), you MUST keep "status": "asking". NEVER send "status": "finished" unless the patient explicitly says they don't want to book or ends the chat.
 14. CRITICAL JSON FORMAT CONSTRAINT: You MUST respond strictly with a valid JSON object matching the required schema. NEVER wrap the JSON in markdown code blocks like ```json ... ```. NEVER output any text, punctuation, whitespace, or commentary before or after the JSON payload. The entire response must strictly be a raw, parseable JSON string. Failure to comply breaks the mobile app interface.
+17. SINGLE OBJECT ONLY: Output EXACTLY ONE JSON object per response. NEVER concatenate two JSON objects like {"a":1}{"a":2}. NEVER output a second object as a "thinking" draft. If you feel tempted to output reasoning, discard it silently and output only the final single JSON object.
 15. STRICT ANTI-ECHO RULE: NEVER repeat or echo the patient's symptoms verbatim in your responses. Process them internally and transition directly to either a follow-up question or the final clinical recommendation.
 16. NO VERBAL STALLING: NEVER output passive transition phrases (e.g., "Let me search for available times today") or halt the execution chain to wait for redundant permissions. Execute the tools instantly and seamlessly as defined in the flow."""
     });
@@ -289,8 +344,9 @@ RULES:
 
           if (secondResponse.statusCode == 200) {
             final secondData = jsonDecode(secondResponse.body);
-            final String finalAiText =
+            final rawFinalText =
                 secondData['choices'][0]['message']['content'];
+            final String finalAiText = _cleanAiJsonString(rawFinalText);
 
             _chatHistory.add({"role": "assistant", "content": finalAiText});
             return finalAiText;
@@ -300,7 +356,8 @@ RULES:
             return '{"status": "asking", "message": "Server error in second round: ${secondResponse.statusCode}", "urgency": "none", "specialty": "none"}';
           }
         } else {
-          final String aiText = responseMessage['content'];
+          final rawAiText = responseMessage['content'];
+          final String aiText = _cleanAiJsonString(rawAiText);
           _chatHistory.add({"role": "assistant", "content": aiText});
           return aiText;
         }
