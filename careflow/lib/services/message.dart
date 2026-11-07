@@ -2,8 +2,7 @@
 //
 // History: This file previously contained a Firebase service-account
 // private key hardcoded in the client. That key has been REMOVED for
-// security. It was for the old 'myappse04' project and must never be
-// in client code again.
+// security and must never be in client code again.
 //
 // Correct architecture:
 //   - FCM push sending must happen server-side (Cloudflare Worker),
