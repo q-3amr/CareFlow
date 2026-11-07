@@ -170,7 +170,7 @@ RULES:
           "Content-Type": "application/json", // إخبار الخادم أن لغتنا ستكون جيسون (JSON)
         },
         body: jsonEncode({ // محتوى الطلب: حوّله من Map إلى نص JSON قبل الإرسال
-          "model": "llama-3.3-70b-versatile", // اسم "عقل" الذكاء الاصطناعي الذي نريد استخدامه
+          "model": "openai/gpt-oss-120b", // اسم "عقل" الذكاء الاصطناعي الذي نريد استخدامه
           "messages": _chatHistory, // أرسل سجل المحادثة كاملاً لكي يتذكر الذكاء الاصطناعي السياق
           "temperature": 0.5, // درجة الإبداع والخيال (0 = آلة جامدة، 1 = خيال واسع). 0.5 = توازن مثالي
           "tools": _tools, // أرسل له قائمة الأدوات التي يمكنه استخدامها (البحث عن طبيب، الحجز...)
@@ -281,7 +281,7 @@ RULES:
               "Content-Type": "application/json",
             },
             body: jsonEncode({
-              "model": "llama-3.3-70b-versatile",
+              "model": "openai/gpt-oss-120b",
               "messages": _chatHistory,
               "temperature": 0.5
             }),
