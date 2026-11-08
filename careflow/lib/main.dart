@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -63,6 +61,7 @@ void handleNotificationNavigation(RemoteMessage message) {
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  // Keeps the native splash visible while we initialize.
   FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   SystemChrome.setPreferredOrientations([
@@ -79,6 +78,9 @@ Future<void> main() async {
     ),
   );
 
+  // Firebase must be ready before runApp — the native splash covers the wait.
+  await _initFirebaseAndNotifications();
+
   runApp(
     MultiProvider(
       providers: [
@@ -93,9 +95,8 @@ Future<void> main() async {
     ),
   );
 
-  // Firebase init runs AFTER first frame so the splash shows immediately
-  // instead of a black screen. UI stays responsive while it loads.
-  unawaited(_initFirebaseAndNotifications());
+  // Remove the native splash once the app is on screen.
+  FlutterNativeSplash.remove();
 }
 
 Future<void> _initFirebaseAndNotifications() async {
@@ -167,8 +168,6 @@ Future<void> _initFirebaseAndNotifications() async {
       () => handleNotificationNavigation(initialMessage),
     );
   }
-
-  FlutterNativeSplash.remove();
 }
 
 class MyApp extends StatelessWidget {
