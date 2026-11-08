@@ -124,3 +124,6 @@ careflow-proxy/.wrangler/
 careflow-proxy/node_modules/
 .wrangler/
 node_modules/
+
+# Firebase local cache
+.firebase/
