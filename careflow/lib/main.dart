@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // لجلب الـ UID عند تحديث الـ FCM Token
-//لاستقبال الإشعارات من سيرفرات فايربيس
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:provider/provider.dart';
 import 'auth_wrapper.dart';
 import 'services/database_service.dart'; // لحفظ الـ FCM Token عند تحديثه
@@ -60,90 +62,8 @@ void handleNotificationNavigation(RemoteMessage message) {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-
-  FirebaseMessaging messaging = FirebaseMessaging
-      .instance; // بنجيب ال instance بتاع ال FirebaseMessaging عشان نقدر نتعامل مع ال notifications
-  FirebaseMessaging.onBackgroundMessage(
-      _firebaseMessagingBackgroundHandler); // بنحدد ال background handler اللي هيشتغل لما يجي notification في ال background
-
-  await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true); // بنطلب صلاحيات ال notifications من المستخدم
-
-  // الاستماع لتحديثات الـ FCM Token وحفظه في Firestore تلقائياً
-  // هذا يضمن أن كل مستخدم لديه توكن صالح دائماً حتى لو تغيّر
-  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
-      await DatabaseService().updateNotificationToken(uid);
-      debugPrint('FCM Token refreshed and saved for user: $uid');
-    }
-  });
-
-  var androidInitialize = const AndroidInitializationSettings(
-      "@mipmap/ic_launcher"); // بنحدد ال icon اللي هيظهر في ال notification على ال Android
-
-  var initializeSetting = InitializationSettings(
-    android: androidInitialize,
-  ); // بنحدد ال settings اللي هيتم استخدامها في ال notifications
-
-  FlutterLocalNotificationsPlugin().initialize(
-    initializeSetting,
-    onDidReceiveNotificationResponse: (details) {},
-  ); // بنعمل initialize لل FlutterLocalNotificationsPlugin عشان نقدر نستخدمه في عرض ال notifications
-
-  FirebaseMessaging.onMessage.listen((event) async {
-    // بنستمع لرسائل ال notifications اللي بتجي لما التطبيق مفتوح
-    if (event.notification != null) {
-      BigTextStyleInformation bigTextStyleInformation = BigTextStyleInformation(
-        // بنحدد ال style اللي هيظهر في ال notification لما يكون فيه نص طويل
-        event.notification!.body.toString(),
-        htmlFormatBigText: true,
-        contentTitle: event.notification!.title.toString(),
-        htmlFormatContentTitle: true,
-      );
-      AndroidNotificationDetails androidPlatformChannelSpecifics =
-          AndroidNotificationDetails(
-        'CareFlow',
-        'CareFlow',
-        importance: Importance.high,
-        playSound: true,
-        styleInformation: bigTextStyleInformation,
-        priority: Priority.high,
-      ); // بنحدد ال details اللي هيتم استخدامها في عرض ال notification على ال Android
-
-      NotificationDetails platformChannelSpecifics = NotificationDetails(
-        android: androidPlatformChannelSpecifics,
-      ); // بنحدد ال details اللي هيتم استخدامها في عرض ال notification على كل المنصات
-
-      await FlutterLocalNotificationsPlugin().show(
-        event.data.hashCode,
-        event.notification?.title,
-        event.notification?.body,
-        platformChannelSpecifics,
-        payload: event.data["body"],
-      ); // بنعرض ال notification باستخدام ال FlutterLocalNotificationsPlugin لما يجي notification في ال foreground
-    }
-  });
-
-  FirebaseMessaging.onMessageOpenedApp.listen((message) {
-    // بنستمع لحدث فتح ال notification لما يجي notification ونضغط عليه عشان نروح ل screen معين بناءً على نوع ال notification
-    handleNotificationNavigation(message);
-  });
-
-  final initialMessage = await FirebaseMessaging.instance
-      .getInitialMessage(); // بنجيب ال notification اللي فتح التطبيق لو التطبيق كان مغلق لما يجي notification ونضغط عليه عشان نروح ل screen معين بناءً على نوع ال notification
-
-  if (initialMessage != null) {
-    // لو كان في notification فتح التطبيق لما يجي notification ونضغط عليه عشان نروح ل screen معين بناءً على نوع ال notification
-    Future.delayed(
-      const Duration(milliseconds: 500),
-      () => handleNotificationNavigation(initialMessage),
-    );
-  }
+  final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
+  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -167,11 +87,88 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider<NotificationProvider>(
           create: (context) => NotificationProvider(),
-        ), // بنستخدم ال MultiProvider عشان نقدر نوفر أكتر من provider في نفس الوقت في التطبيق
+        ),
       ],
       child: const MyApp(),
     ),
   );
+
+  // Firebase init runs AFTER first frame so the splash shows immediately
+  // instead of a black screen. UI stays responsive while it loads.
+  unawaited(_initFirebaseAndNotifications());
+}
+
+Future<void> _initFirebaseAndNotifications() async {
+  await Firebase.initializeApp();
+
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Ask for notification permission ONCE — skip if already authorized/denied.
+  final messaging = FirebaseMessaging.instance;
+  final settings = await messaging.getNotificationSettings();
+  if (settings.authorizationStatus == AuthorizationStatus.notDetermined) {
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+  }
+
+  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      await DatabaseService().updateNotificationToken(uid);
+      debugPrint('FCM Token refreshed and saved for user: $uid');
+    }
+  });
+
+  var androidInitialize =
+      const AndroidInitializationSettings('@mipmap/ic_launcher');
+  var initializeSetting =
+      InitializationSettings(android: androidInitialize);
+
+  await FlutterLocalNotificationsPlugin().initialize(
+    initializeSetting,
+    onDidReceiveNotificationResponse: (details) {},
+  );
+
+  FirebaseMessaging.onMessage.listen((event) async {
+    if (event.notification != null) {
+      BigTextStyleInformation bigTextStyleInformation = BigTextStyleInformation(
+        event.notification!.body.toString(),
+        htmlFormatBigText: true,
+        contentTitle: event.notification!.title.toString(),
+        htmlFormatContentTitle: true,
+      );
+      AndroidNotificationDetails androidPlatformChannelSpecifics =
+          AndroidNotificationDetails(
+        'CareFlow',
+        'CareFlow',
+        importance: Importance.high,
+        playSound: true,
+        styleInformation: bigTextStyleInformation,
+        priority: Priority.high,
+      );
+      NotificationDetails platformChannelSpecifics = NotificationDetails(
+        android: androidPlatformChannelSpecifics,
+      );
+      await FlutterLocalNotificationsPlugin().show(
+        event.data.hashCode,
+        event.notification?.title,
+        event.notification?.body,
+        platformChannelSpecifics,
+        payload: event.data['body'],
+      );
+    }
+  });
+
+  FirebaseMessaging.onMessageOpenedApp.listen(handleNotificationNavigation);
+
+  final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+  if (initialMessage != null) {
+    Future.delayed(
+      const Duration(milliseconds: 500),
+      () => handleNotificationNavigation(initialMessage),
+    );
+  }
+
+  FlutterNativeSplash.remove();
 }
 
 class MyApp extends StatelessWidget {
