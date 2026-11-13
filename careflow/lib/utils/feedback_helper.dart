@@ -187,6 +187,15 @@ class FeedbackHelper {
                                       'rating': dialogRating,
                                     });
 
+                                    // Also store the review in the public
+                                    // reviews collection so doctor profiles
+                                    // can display it.
+                                    await _db.saveReviewForAppointment(
+                                      appointmentId: appointmentId,
+                                      rating: dialogRating,
+                                      feedbackText: _feedbackController.text,
+                                    );
+
                                     if (doctorId != null &&
                                         doctorId.isNotEmpty) {
                                       await _db.updateDoctorAggregateRating(

@@ -687,6 +687,19 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
                 ? _db.streamReviewsForDoctor(widget.doctorId!)
                 : null,
             builder: (context, snap) {
+              if (snap.hasError) {
+                return AppCard(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Center(
+                    child: Text(
+                      'Could not load reviews',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body.copyWith(color: textSecondary),
+                    ),
+                  ),
+                );
+              }
+
               if (!snap.hasData) {
                 return const Padding(
                   padding: EdgeInsets.all(AppSpacing.xl),

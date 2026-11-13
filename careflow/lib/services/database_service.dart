@@ -82,13 +82,41 @@ class DatabaseService {
       'rating': rating, // احفظ عدد النجوم
       'isReviewSeen': false, // اضبطه كغير مقروء حتى يظهر تنبيه جديد للطبيب
     });
+
+    await saveReviewForAppointment(
+      appointmentId: appointmentId,
+      rating: rating,
+      feedbackText: feedbackText,
+    );
+  }
+
+  /// يحفظ التقييم في جدول reviews العام. لا نقرأ التقييمات من appointments لأن
+  /// المريض لا يملك صلاحية قراءة مواعيد المرضى الآخرين.
+  Future<void> saveReviewForAppointment({
+    required String appointmentId,
+    required double rating,
+    required String feedbackText,
+  }) async {
+    final apptSnap =
+        await _db.collection('appointments').doc(appointmentId).get();
+    final data = apptSnap.data();
+    if (data == null) return;
+
+    await _db.collection('reviews').doc(appointmentId).set({
+      'appointment_id': appointmentId,
+      'doctor_id': data['doctor_id'],
+      'patient_id': data['patient_id'],
+      'patient_name': data['patient_name'] ?? 'Patient',
+      'rating': rating,
+      'feedback_text': feedbackText,
+      'created_at': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> updateDoctorAggregateRating(String doctorId) async {
     final snapshot = await _db
-        .collection('appointments')
+        .collection('reviews')
         .where('doctor_id', isEqualTo: doctorId)
-        .where('hasFeedback', isEqualTo: true)
         .get();
 
     if (snapshot.docs.isEmpty) return;
@@ -111,9 +139,8 @@ class DatabaseService {
 
   Stream<QuerySnapshot> streamReviewsForDoctor(String doctorId) { // فنكشن يبث تقييمات الطبيب بشكل مباشر. أي تقييم جديد سيظهر تلقائياً في شاشة الطبيب
     return _db
-        .collection('appointments') // ابحث في جدول المواعيد
-        .where('doctor_id', isEqualTo: doctorId) // فلتر: فقط مواعيد هذا الطبيب تحديداً
-        .where('hasFeedback', isEqualTo: true) // فلتر: فقط المواعيد التي ترك فيها المريض تقييماً
+        .collection('reviews') // جدول التقييمات العام (قابل للقراءة للجميع)
+        .where('doctor_id', isEqualTo: doctorId) // فلتر: فقط تقييمات هذا الطبيب
         .snapshots(); // اشترك في التحديثات المباشرة (بدلاً من .get() التي تجلب مرة واحدة فقط)
   }
 

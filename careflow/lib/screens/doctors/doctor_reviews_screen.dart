@@ -148,11 +148,21 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
       ),
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
-            .collection('appointments')
+            .collection('reviews')
             .where('doctor_id', isEqualTo: uid)
-            .where('hasFeedback', isEqualTo: true)
             .snapshots(),
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return AppEmptyState(
+              icon: Icons.star_outline_rounded,
+              title: 'Could not load reviews',
+              message: 'Check your connection and try again.',
+              iconColor: AppColors.starAmber,
+              iconBackgroundColor:
+                  isDark ? AppColors.starSoftDark : AppColors.warningLight,
+            );
+          }
+
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -160,10 +170,10 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
           var docs = snapshot.data!.docs;
 
           docs.sort((a, b) {
-            final rawA = (a.data() as Map)['appointmentDateTime'];
-            final rawB = (b.data() as Map)['appointmentDateTime'];
+            final rawA = (a.data() as Map)['created_at'];
+            final rawB = (b.data() as Map)['created_at'];
             if (rawA == null || rawB == null) return 0;
-            return rawB.compareTo(rawA);
+            return (rawB as Timestamp).compareTo(rawA as Timestamp);
           });
 
           if (docs.isEmpty) {
