@@ -1,12 +1,14 @@
 ﻿import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import '../models/user.dart';
 
 class AuthService {
   final FirebaseAuth auth = FirebaseAuth.instance;
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
 
   Stream<User?> get authStateChanges => auth.authStateChanges();
 
@@ -20,6 +22,52 @@ class AuthService {
       );
     } on FirebaseAuthException catch (e) {
       throw _mapAuthError(e.code, _loginErrors);
+    }
+  }
+
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      // Trigger the Google Sign-In flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) return null; // User cancelled
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the credential
+      final UserCredential userCredential =
+          await auth.signInWithCredential(credential);
+
+      // Check if this is a new user (need to create profile)
+      final User? user = userCredential.user;
+      if (user != null) {
+        final userDoc = await firestore.collection('users').doc(user.uid).get();
+        if (!userDoc.exists) {
+          // Create new patient profile for Google sign-in users
+          final UserModel newUser = UserModel(
+            id: user.uid,
+            email: user.email ?? '',
+            name: user.displayName ?? 'User',
+            role: 'patient',
+            profileImage: user.photoURL ?? '',
+            pushToken: await _fcm.getToken(),
+          );
+          await firestore.collection('users').doc(user.uid).set(newUser.toMap());
+        }
+      }
+
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      throw _mapAuthError(e.code, _loginErrors);
+    } catch (e) {
+      throw 'Google sign-in failed: $e';
     }
   }
 

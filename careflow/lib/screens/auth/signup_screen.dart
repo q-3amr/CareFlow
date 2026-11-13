@@ -5,6 +5,7 @@ import '../../utils/app_tokens.dart';
 import '../../utils/constants.dart';
 import '../../widgets/careflow_logo.dart';
 import '../../widgets/app_card.dart';
+import '../../auth_wrapper.dart';
 import 'login_screen.dart';
 import '../doctors/doctor_map_screen.dart';
 
@@ -126,6 +127,26 @@ class _SignupScreenState extends State<SignupScreen> {
         setState(() => isLoading = false);
         _showError(e.toString());
       }
+    }
+  }
+
+  void handleGoogleSignIn() async {
+    setState(() => isLoading = true);
+
+    try {
+      await _authService.signInWithGoogle();
+
+      if (!mounted) return;
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const AuthWrapper()),
+        (route) => false,
+      );
+    } catch (e) {
+      if (mounted) _showError(e.toString());
+    } finally {
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -489,6 +510,36 @@ class _SignupScreenState extends State<SignupScreen> {
                                     ),
                             ),
                           ),
+
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Google Sign-In Button (Patient only)
+                          if (!isDoctor)
+                            SizedBox(
+                              height: AppMetrics.controlHeight,
+                              child: OutlinedButton.icon(
+                                onPressed: isLoading ? null : handleGoogleSignIn,
+                                icon: Image.asset(
+                                  'assets/images/google_logo.png',
+                                  width: 20,
+                                  height: 20,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(Icons.g_mobiledata_rounded,
+                                          size: 20),
+                                ),
+                                label: const Text('Continue with Google'),
+                                style: OutlinedButton.styleFrom(
+                                  side: BorderSide(
+                                    color: Theme.of(context).dividerColor,
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(
+                                        AppRadius.md),
+                                  ),
+                                ),
+                              ),
+                            ),
+
                           const SizedBox(height: AppSpacing.md),
 
                           // Login Link
