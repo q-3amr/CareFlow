@@ -25,7 +25,13 @@ service cloud.firestore {
 
       allow create: if isSignedIn() && request.auth.uid == userId;
 
-      allow update: if isSelf(userId) || isAdmin() ||
+      allow update: if (isSelf(userId) &&
+          // Doctors cannot set their own isVerified; only admin can verify
+          !(resource.data.role == 'doctor' &&
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isVerified']) &&
+            request.resource.data.isVerified == true &&
+            resource.data.isVerified == false)) ||
+        isAdmin() ||
         // Allow any signed-in user to update only rating aggregation
         // on a doctor doc (used by feedback_helper after review).
         (isSignedIn() &&

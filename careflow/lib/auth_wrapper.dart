@@ -11,7 +11,14 @@ import 'screens/doctors/doctor_home_screen.dart';
 import 'screens/admin/admin_home_screen.dart';
 
 class AuthWrapper extends StatefulWidget {
-  const AuthWrapper({super.key});
+  final AuthService? authService;
+  final DatabaseService? databaseService;
+
+  const AuthWrapper({
+    super.key,
+    this.authService,
+    this.databaseService,
+  });
 
   @override
   State<AuthWrapper> createState() => _AuthWrapperState();
@@ -22,10 +29,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
   Future<UserModel?>? _roleFuture;
   String? _tokenUid;
 
+  AuthService get _auth => widget.authService ?? AuthService();
+  DatabaseService get _db => widget.databaseService ?? DatabaseService();
+
   Future<UserModel?> _roleFor(String uid) {
     if (_roleUid != uid || _roleFuture == null) {
       _roleUid = uid;
-      _roleFuture = DatabaseService().getUserById(uid);
+      _roleFuture = _db.getUserById(uid);
     }
     return _roleFuture!;
   }
@@ -33,7 +43,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: AuthService().authStateChanges,
+      stream: _auth.authStateChanges,
       builder: (context, snapshot) {
         final User? user = snapshot.data;
 
@@ -49,7 +59,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
         if (_tokenUid != user.uid) {
           _tokenUid = user.uid;
-          DatabaseService().updateNotificationToken(user.uid);
+          _db.updateNotificationToken(user.uid);
         }
 
         return FutureBuilder<UserModel?>(
@@ -71,7 +81,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
                     iconColor: AppColors.destructive,
                     iconBackgroundColor: AppColors.destructiveLight,
                     action: ElevatedButton(
-                      onPressed: () => AuthService().signOut(),
+                      onPressed: () => _auth.signOut(),
                       child: const Text('Sign Out'),
                     ),
                   ),
@@ -85,7 +95,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
             );
             if (userModel != null &&
                 userModel.role.trim().toLowerCase() == 'admin') {
-              return const AdminHomeScreen();
+              return AdminHomeScreen(
+                databaseService: _db,
+                authService: _auth,
+              );
             }
             if (userModel != null && userModel.isDoctor) {
               if (userModel.isVerified != true) {
@@ -107,7 +120,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
                           ? AppColors.warningSoftDark
                           : AppColors.warningLight,
                       action: OutlinedButton(
-                        onPressed: () => AuthService().signOut(),
+                        onPressed: () => _auth.signOut(),
                         child: const Text('Sign Out'),
                       ),
                     ),
@@ -127,6 +140,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
             return _UnknownProfileScreen(
               uid: user.uid,
               role: userModel?.role ?? 'missing',
+              onSignOut: _auth.signOut,
             );
           },
         );
@@ -149,8 +163,13 @@ class _AuthLoadingScreen extends StatelessWidget {
 class _UnknownProfileScreen extends StatelessWidget {
   final String uid;
   final String role;
+  final VoidCallback onSignOut;
 
-  const _UnknownProfileScreen({required this.uid, required this.role});
+  const _UnknownProfileScreen({
+    required this.uid,
+    required this.role,
+    required this.onSignOut,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -168,7 +187,7 @@ class _UnknownProfileScreen extends StatelessWidget {
           iconBackgroundColor:
               isDark ? AppColors.warningSoftDark : AppColors.warningLight,
           action: ElevatedButton(
-            onPressed: () => AuthService().signOut(),
+            onPressed: onSignOut,
             child: const Text('Sign Out'),
           ),
         ),

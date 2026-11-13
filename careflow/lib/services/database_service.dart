@@ -609,94 +609,97 @@ class DatabaseService {
   }
 
   Future<String> bookAppointmentForAi(
-      String doctorId, String date, String time) async { // فنكشن حجز الموعد عن طريق الذكاء الاصطناعي. تأخذ رقم الطبيب والتاريخ والوقت
-    try {
-      final String? patientId = FirebaseAuth.instance.currentUser?.uid; // جلب رقم المريض المسجل دخوله حالياً
-      if (patientId == null) { // إذا لم يكن هناك مستخدم مسجل الدخول، أوقف الحجز
-        return jsonEncode(
-            {"error": "User is not logged in. Cannot book appointment."});
-      }
-
-      // جلب اسم المريض من قاعدة البيانات لحفظه في الموعد
-      DocumentSnapshot patientDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(patientId)
-          .get();
-      String patientName = "Unknown"; // اسم افتراضي إذا لم نجد الاسم في قاعدة البيانات
-      if (patientDoc.exists) {
-        final pData = patientDoc.data() as Map<String, dynamic>;
-        patientName = pData['name'] ?? pData['fullName'] ?? "Unknown"; // جرب اسمين مختلفين لنفس الحقل
-      }
-
-      // جلب اسم الطبيب من قاعدة البيانات لحفظه في الموعد
-      DocumentSnapshot doctorDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(doctorId)
-          .get();
-      String doctorName = "Doctor"; // اسم افتراضي إذا لم نجد الاسم في قاعدة البيانات
-      if (doctorDoc.exists) {
-        final dData = doctorDoc.data() as Map<String, dynamic>;
-        doctorName = dData['name'] ?? dData['fullName'] ?? "Doctor"; // جرب اسمين مختلفين لنفس الحقل
-      }
-
-      DateTime parsedDate = DateTime.parse(date); // حوّل التاريخ من نص إلى DateTime
-
-      // دمج التاريخ والوقت معاً في كائن DateTime واحد كامل
-      DateTime appointmentDateTime = parsedDate; // قيمة افتراضية قبل تحليل الوقت
-      try {
-        final parts = time.trim().split(' '); // افصل الوقت عن AM/PM
-        final timeParts = parts[0].split(':'); // افصل الساعات عن الدقائق
-        int hour = int.parse(timeParts[0]);
-        int minute = int.parse(timeParts[1]);
-        if (parts.length > 1) {
-          if (parts[1].toUpperCase() == 'PM' && hour != 12) hour += 12; // تحويل من نظام 12 إلى 24 ساعة (مساءاً)
-          if (parts[1].toUpperCase() == 'AM' && hour == 12) hour = 0; // تحويل من نظام 12 إلى 24 ساعة (صباحاً)
-        }
-        appointmentDateTime = DateTime(
-            parsedDate.year, parsedDate.month, parsedDate.day, hour, minute); // بناء كائن وقت كامل يجمع التاريخ والساعة
-      } catch (_) {}
-
-      // الحجز يمر عبر نفس الـ transaction وقفل booked_slots المستخدم في
-      // الواجهة، حتى لا يستطيع مسار الذكاء الاصطناعي تجاوز منع الحجز المزدوج.
-      final String? bookingError = await _bookSlotTransaction(
-        doctorId: doctorId,
-        doctorName: doctorName,
-        patientId: patientId,
-        patientName: patientName,
-        appointmentDateTime: appointmentDateTime,
-      );
-
-      if (bookingError != null) {
-        return jsonEncode({
-          "success": false,
-          "error":
-              "CRITICAL: This exact time slot ($time) was just booked by someone else! Tell the user to choose another time from the available slots."
-        });
-      }
-
-      // إرسال إشعار للطبيب بأن هناك طلب حجز جديد
-      try {
-        final token = await getToken(doctorId); // جلب رقم جهاز الطبيب لإرسال الإشعار
-        if (token.isNotEmpty) {
-          MessageServices().sendNotificationToUser(
-            fcmToken: token,
-            title: 'New Appointment Request',
-            body: '$patientName requested an appointment on $date at $time',
-            type: 'appointment',
-          );
-        }
-      } catch (e) {
-        debugPrint('Failed to send notification for AI booking: $e'); // لا نوقف الحجز إذا فشل الإشعار، فقط نسجل الخطأ
-      }
-
-      return jsonEncode({
-        "success": true,
-        "message":
-            "Appointment successfully booked for $date at $time. Tell the user their appointment is now PENDING doctor approval." // أخبر الذكاء الاصطناعي أن الحجز نجح وأن يخبر المريض
-      });
-    } catch (e) {
+      String doctorId,
+      String date,
+      String time, {
+    DatabaseService? db,
+    String? patientId,
+  }) async {
+    final FirebaseFirestore firestore = db?._db ?? FirebaseFirestore.instance;
+    final String? effectivePatientId = patientId ?? FirebaseAuth.instance.currentUser?.uid;
+    if (effectivePatientId == null) {
       return jsonEncode(
-          {"error": "Database error while booking the appointment: $e"}); // إذا حدث خطأ غير متوقع
+          {"error": "User is not logged in. Cannot book appointment."});
     }
+
+    // جلب اسم المريض من قاعدة البيانات لحفظه في الموعد
+    DocumentSnapshot patientDoc = await firestore
+        .collection('users')
+        .doc(effectivePatientId)
+        .get();
+    String patientName = "Unknown";
+    if (patientDoc.exists) {
+      final pData = patientDoc.data() as Map<String, dynamic>;
+      patientName = pData['name'] ?? pData['fullName'] ?? "Unknown";
+    }
+
+    // جلب اسم الطبيب من قاعدة البيانات لحفظه في الموعد
+    DocumentSnapshot doctorDoc = await firestore
+        .collection('users')
+        .doc(doctorId)
+        .get();
+    String doctorName = "Doctor";
+    if (doctorDoc.exists) {
+      final dData = doctorDoc.data() as Map<String, dynamic>;
+      doctorName = dData['name'] ?? dData['fullName'] ?? "Doctor";
+    }
+
+    DateTime parsedDate = DateTime.parse(date);
+
+    // دمج التاريخ والوقت معاً في كائن DateTime واحد كامل
+    DateTime appointmentDateTime = parsedDate;
+    try {
+      final parts = time.trim().split(' ');
+      final timeParts = parts[0].split(':');
+      int hour = int.parse(timeParts[0]);
+      int minute = int.parse(timeParts[1]);
+      if (parts.length > 1) {
+        if (parts[1].toUpperCase() == 'PM' && hour != 12) hour += 12;
+        if (parts[1].toUpperCase() == 'AM' && hour == 12) hour = 0;
+      }
+      appointmentDateTime = DateTime(
+          parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+    } catch (_) {}
+
+    // الحجز يمر عبر نفس الـ transaction وقفل booked_slots المستخدم في
+    // الواجهة، حتى لا يستطيع مسار الذكاء الاصطناعي تجاوز منع الحجز المزدوج.
+    // نستخدم الـ DatabaseService الممرر (أو هذا المثيل) للـ transaction
+    final bookingDb = db ?? this;
+    final String? bookingError = await bookingDb._bookSlotTransaction(
+      doctorId: doctorId,
+      doctorName: doctorName,
+      patientId: effectivePatientId,
+      patientName: patientName,
+      appointmentDateTime: appointmentDateTime,
+    );
+
+    if (bookingError != null) {
+      return jsonEncode({
+        "success": false,
+        "error":
+            "CRITICAL: This exact time slot ($time) was just booked by someone else! Tell the user to choose another time from the available slots."
+      });
+    }
+
+    // إرسال إشعار للطبيب بأن هناك طلب حجز جديد
+    try {
+      final token = await bookingDb.getToken(doctorId);
+      if (token.isNotEmpty) {
+        MessageServices().sendNotificationToUser(
+          fcmToken: token,
+          title: 'New Appointment Request',
+          body: '$patientName requested an appointment on $date at $time',
+          type: 'appointment',
+        );
+      }
+    } catch (e) {
+      debugPrint('Failed to send notification for AI booking: $e');
+    }
+
+    return jsonEncode({
+      "success": true,
+      "message":
+          "Appointment successfully booked for $date at $time. Tell the user their appointment is now PENDING doctor approval."
+    });
   }
 }

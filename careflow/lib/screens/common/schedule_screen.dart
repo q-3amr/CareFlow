@@ -11,16 +11,24 @@ import '../../widgets/app_empty_state.dart';
 
 class ScheduleScreen extends StatefulWidget {
   final bool isDoctor;
+  final Object? testUser;
+  final DatabaseService? testDb;
 
-  const ScheduleScreen({super.key, required this.isDoctor});
+  const ScheduleScreen({
+    super.key,
+    required this.isDoctor,
+    this.testUser,
+    this.testDb,
+  });
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  final _db = DatabaseService();
-  final User? user = FirebaseAuth.instance.currentUser;
+  late final _db = widget.testDb ?? DatabaseService();
+  String? get userUid =>
+      (widget.testUser as dynamic?)?.uid ?? FirebaseAuth.instance.currentUser?.uid;
 
   int _selectedTab = 0;
 
@@ -171,8 +179,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           // Appointments List Stream
           Expanded(
             child: StreamBuilder<dynamic>(
-              stream: user?.uid != null
-                  ? _db.streamUserAppointments(user!.uid, isDoctor: widget.isDoctor)
+              stream: userUid != null
+                  ? _db.streamUserAppointments(userUid!, isDoctor: widget.isDoctor)
                   : null,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
@@ -192,7 +200,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   final expired = _isExpired(date);
 
                   if (_selectedTab == 0) {
-                    return status == 'accepted' && !expired;
+                    return (status == 'accepted' || status == 'pending') && !expired;
                   } else {
                     return status == 'completed' ||
                         status == 'cancelled' ||
@@ -291,7 +299,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     String displayStatus;
     AppBadgeVariant badgeVariant;
 
-    if (status == 'accepted' && !expired) {
+    if (status == 'pending') {
+      displayStatus = 'Pending';
+      badgeVariant = AppBadgeVariant.warning;
+    } else if (status == 'accepted' && !expired) {
       displayStatus = 'Confirmed';
       badgeVariant = AppBadgeVariant.primary;
     } else if (status == 'accepted' && expired) {
@@ -357,8 +368,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                     onPressed: () => _completeAppointment(doc.id),
                   ),
 
-                // Patient action: cancel
-                if (!widget.isDoctor && displayStatus == 'Confirmed')
+                // Patient action: cancel (both pending and confirmed)
+                if (!widget.isDoctor && (displayStatus == 'Confirmed' || displayStatus == 'Pending'))
                   IconButton(
                     icon: const Icon(
                       Icons.cancel_outlined,

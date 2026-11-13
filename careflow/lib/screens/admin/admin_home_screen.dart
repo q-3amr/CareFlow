@@ -12,12 +12,19 @@ import '../../widgets/app_section_header.dart';
 import '../../auth_wrapper.dart';
 
 class AdminHomeScreen extends StatelessWidget {
-  const AdminHomeScreen({super.key});
+  final DatabaseService? databaseService;
+  final AuthService? authService;
+
+  const AdminHomeScreen({
+    super.key,
+    this.databaseService,
+    this.authService,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final db = DatabaseService();
-    final auth = AuthService();
+    final db = databaseService ?? DatabaseService();
+    final auth = authService ?? AuthService();
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textSecondary = AppColors.textSecondary(isDark);
 
