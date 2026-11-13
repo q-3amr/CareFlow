@@ -19,18 +19,18 @@ void main() {
       expect(find.text('Email Address'), findsOneWidget);
       expect(find.text('Password'), findsOneWidget);
       // Page heading
-      expect(find.text('Log in'), findsOneWidget);
-      // Login button text
-      expect(find.text('Login'), findsOneWidget);
+      expect(find.text('Welcome Back'), findsOneWidget);
+      // Sign-in button text
+      expect(find.text('Sign In'), findsOneWidget);
     });
 
     testWidgets(
-        'LoginScreen should show error snackbar when fields are empty and Login is tapped',
+        'LoginScreen should show error snackbar when fields are empty and Sign In is tapped',
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
       await tester.pump();
 
-      final loginButton = find.text('Login');
+      final loginButton = find.text('Sign In');
       expect(loginButton, findsOneWidget);
 
       await tester.ensureVisible(loginButton);
@@ -57,12 +57,12 @@ void main() {
       expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
     });
 
-    testWidgets('LoginScreen shows a Sign up link to navigate to SignupScreen',
+    testWidgets('LoginScreen shows a Register link to navigate to SignupScreen',
         (WidgetTester tester) async {
       await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
       await tester.pump();
 
-      final signUpLink = find.text('Sign up');
+      final signUpLink = find.text('Register');
       expect(signUpLink, findsOneWidget);
     });
   });

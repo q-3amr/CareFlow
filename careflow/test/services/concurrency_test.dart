@@ -29,8 +29,10 @@ import 'package:careflow/models/appointment.dart';
 //
 //  The bookAppointmentSafely() contract under test:
 //   – Read the booked_slots/<key> document inside a Firestore transaction.
-//   – If it exists  → return false  (slot taken, double-booking prevented).
-//   – If it doesn't → write the lock AND the appointment doc atomically.
+//   – If it exists  → return a non-null error String (slot already taken).
+//   – If it doesn't → write the lock AND the appointment doc atomically and
+//                     return null (success).
+//  Callers check `if (error != null)`; the UI surfaces the message verbatim.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -87,11 +89,11 @@ void main() {
 
   // ── Group 1 · Single booking — happy path ─────────────────────────────────
   group('bookAppointmentSafely – single booking (happy path)', () {
-    test('1a. Books a free slot and returns true', () async {
+    test('1a. Books a free slot and returns null (success)', () async {
       final result = await db.bookAppointmentSafely(
           _appointment(patientId: 'p1', patientName: 'Alice'));
 
-      expect(result, isTrue,
+      expect(result, isNull,
           reason: 'A previously free slot must be booked successfully');
     });
 
@@ -146,10 +148,10 @@ void main() {
   // ── Group 2 · Transaction read-then-write guard ───────────────────────────
   group('bookAppointmentSafely – transaction read-lock guard', () {
     /// When the lock document ALREADY EXISTS before the transaction runs,
-    /// the transaction must read it, detect the conflict, and return false
-    /// without creating any appointment document.
+    /// the transaction must read it, detect the conflict, and return an error
+    /// message without creating any appointment document.
     test(
-        '2a. Returns false when slot lock document is already present '
+        '2a. Returns an error when slot lock document is already present '
         '(simulates a slot another patient booked first)',
         () async {
       final slotTime = DateTime(2026, 9, 15, 10, 0);
@@ -161,9 +163,10 @@ void main() {
       final result = await db.bookAppointmentSafely(
           _appointment(patientId: 'p2', patientName: 'Bob', slotTime: slotTime));
 
-      expect(result, isFalse,
+      expect(result, isNotNull,
           reason:
               'Transaction must detect the existing lock and reject the booking');
+      expect(result, contains('just booked'));
     });
 
     test('2b. No appointment document is created when slot is already locked',
@@ -205,7 +208,7 @@ void main() {
   // ── Group 3 · Sequential double-booking attempt ───────────────────────────
   group('bookAppointmentSafely – sequential double-booking prevention', () {
     test(
-        '3a. Second sequential attempt on the same slot returns false',
+        '3a. Second sequential attempt on the same slot returns an error',
         () async {
       final slot = _appointment(patientId: 'p1', patientName: 'Alice');
 
@@ -213,8 +216,8 @@ void main() {
       final second = await db.bookAppointmentSafely(
           _appointment(patientId: 'p2', patientName: 'Bob'));
 
-      expect(first, isTrue, reason: 'First booking must succeed');
-      expect(second, isFalse,
+      expect(first, isNull, reason: 'First booking must succeed');
+      expect(second, isNotNull,
           reason: 'Second sequential attempt must be rejected by the lock');
     });
 
@@ -268,8 +271,8 @@ void main() {
 
       final results = await Future.wait([futureA, futureB]);
 
-      final successes = results.where((r) => r == true).length;
-      final failures = results.where((r) => r == false).length;
+      final successes = results.where((r) => r == null).length;
+      final failures = results.where((r) => r != null).length;
 
       expect(successes, equals(1),
           reason:
@@ -342,7 +345,7 @@ void main() {
             _appointment(patientId: 'p2', patientName: 'Bob', slotTime: slot2)),
       ]);
 
-      expect(results, everyElement(isTrue),
+      expect(results, everyElement(isNull),
           reason:
               'Distinct slot keys produce independent lock documents — '
               'both transactions must commit without interference');

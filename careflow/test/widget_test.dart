@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:careflow/main.dart';
 import 'package:careflow/providers/chat_provider.dart';
+import 'package:careflow/providers/theme_provider.dart';
 import 'helpers/firebase_mock_helper.dart';
 
 void main() {
@@ -10,10 +12,17 @@ void main() {
     setupFirebaseMocks();
   });
 
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+  });
+
   testWidgets('MyApp should build a MaterialApp', (WidgetTester tester) async {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
+          ChangeNotifierProvider<ThemeProvider>(
+            create: (_) => ThemeProvider(),
+          ),
           ChangeNotifierProvider<ChatProvider>(
             create: (_) => ChatProvider(),
           ),

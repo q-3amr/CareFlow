@@ -18,7 +18,7 @@ void main() {
 
       expect(find.byType(MaterialApp), findsOneWidget);
       // Heading text
-      expect(find.text('Log in'), findsOneWidget);
+      expect(find.text('Welcome Back'), findsOneWidget);
       // Field labels
       expect(find.text('Email Address'), findsOneWidget);
       expect(find.text('Password'), findsOneWidget);
@@ -31,8 +31,8 @@ void main() {
       await tester.pump();
 
       expect(find.byType(MaterialApp), findsOneWidget);
-      // Heading – appears both as title Text and as button label
-      expect(find.text('Sign up'), findsWidgets);
+      // Heading
+      expect(find.text('Create Account'), findsOneWidget);
       expect(find.text('Full Name'), findsOneWidget);
       expect(find.text('Email Address'), findsOneWidget);
     });
@@ -43,8 +43,8 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
       await tester.pumpAndSettle();
 
-      // 'Sign up' is the GestureDetector link at the bottom of LoginScreen
-      final signUpLink = find.text('Sign up');
+      // 'Register' is the TextButton link at the bottom of LoginScreen
+      final signUpLink = find.text('Register');
       expect(signUpLink, findsOneWidget);
 
       await tester.ensureVisible(signUpLink);
@@ -52,8 +52,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // After navigation: SignupScreen heading + subtitle
-      expect(find.text('Sign up'), findsWidgets);
-      expect(find.text('Create your new account'), findsOneWidget);
+      expect(find.text('Create Account'), findsOneWidget);
+      expect(find.text('Select your role and enter credentials'), findsOneWidget);
     });
 
     testWidgets('User can navigate from signup to login', (
@@ -62,8 +62,8 @@ void main() {
       await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
       await tester.pumpAndSettle();
 
-      // 'Login' is the GestureDetector link at the bottom of SignupScreen
-      final loginLink = find.text('Login');
+      // 'Sign In' is the TextButton link at the bottom of SignupScreen
+      final loginLink = find.text('Sign In');
       expect(loginLink, findsOneWidget);
 
       await tester.ensureVisible(loginLink);
@@ -71,7 +71,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // After navigation: LoginScreen heading
-      expect(find.text('Log in'), findsOneWidget);
+      expect(find.text('Welcome Back'), findsOneWidget);
     });
   });
 }
