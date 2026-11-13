@@ -1,11 +1,18 @@
-﻿
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
+import '../../models/user.dart';
 import '../../services/auth_service.dart';
 import '../../services/database_service.dart';
 import '../../utils/constants.dart';
 import '../../auth_wrapper.dart';
+import '../../providers/theme_provider.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_section_header.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -20,7 +27,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final User? user = FirebaseAuth.instance.currentUser;
 
   bool isDoctor = false;
-  bool isLoading = true;
+  bool isSaving = false;
+  bool _profileLoaded = false;
+  bool _obscurePassword = true;
+  StreamSubscription<UserModel?>? _userSub;
 
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _bioController = TextEditingController();
@@ -32,43 +42,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-  }
-
-  void _loadUserData() async {
-    if (user == null) return;
-    _emailController.text = user!.email ?? '';
-
-    try {
-      final userModel = await _db.getUserById(user!.uid);
-
-      if (userModel != null) {
-        String? dbSpecialty = userModel.specialty;
-        if (dbSpecialty != null && !kSpecialties.contains(dbSpecialty)) {
-          dbSpecialty = null;
-        }
-
-        if (mounted) {
-          setState(() {
-            isDoctor = userModel.isDoctor;
+    _emailController.text = user?.email ?? '';
+    if (user != null) {
+      _userSub = _db.streamUser(user!.uid).listen((userModel) {
+        if (!mounted || userModel == null) return;
+        setState(() {
+          isDoctor = userModel.isDoctor;
+          if (!_profileLoaded) {
+            _profileLoaded = true;
             _nameController.text = userModel.name;
             _bioController.text = userModel.about ?? '';
-            _selectedSpecialty = dbSpecialty;
-            isLoading = false;
-          });
-        }
-      } else {
-        if (mounted) setState(() => isLoading = false);
-      }
-    } catch (e) {
-      if (mounted) setState(() => isLoading = false);
+            String? specialty = userModel.specialty;
+            if (specialty != null && !kSpecialties.contains(specialty)) {
+              specialty = null;
+            }
+            _selectedSpecialty = specialty;
+          }
+        });
+      });
     }
   }
 
+  @override
+  void dispose() {
+    _userSub?.cancel();
+    _nameController.dispose();
+    _bioController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
   void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: isError ? Colors.red : Colors.green,
+        backgroundColor: isError ? AppColors.destructive : AppColors.success,
+        behavior: SnackBarBehavior.floating,
         content: Text(message),
       ),
     );
@@ -76,16 +86,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _updateProfile() async {
     if (user == null) return;
-    setState(() => isLoading = true);
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _showMessage('Name cannot be empty', isError: true);
+      return;
+    }
+
+    setState(() => isSaving = true);
 
     try {
       final Map<String, dynamic> data = {
-        'name': _nameController.text.trim(),
+        'name': name,
         'email': _emailController.text.trim(),
       };
 
       if (isDoctor) {
-        if (_selectedSpecialty == null) throw 'Please select a specialty';
+        if (_selectedSpecialty == null) {
+          throw 'Please select your medical specialty';
+        }
         data['about'] = _bioController.text.trim();
         data['specialty'] = _selectedSpecialty;
       }
@@ -94,40 +112,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (_emailController.text.trim() != user!.email) {
         await user!.verifyBeforeUpdateEmail(_emailController.text.trim());
-        _showMessage(
-          'Verification email sent to new address. Please verify.',
-        );
+        _showMessage('Verification email sent to new address. Please verify.');
       }
 
       if (_passwordController.text.isNotEmpty) {
         if (_passwordController.text.length < 6) {
           throw FirebaseAuthException(
             code: 'weak-password',
-            message: 'Password must be at least 6 chars',
+            message: 'Password must be at least 6 characters',
           );
         }
         await user!.updatePassword(_passwordController.text.trim());
-        _showMessage('Password updated successfully!');
+        _showMessage('Profile and password updated successfully');
       } else {
-        _showMessage('Profile Updated Successfully!');
+        _showMessage('Profile updated successfully');
       }
 
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() => isSaving = false);
         _passwordController.clear();
       }
     } on FirebaseAuthException catch (e) {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) setState(() => isSaving = false);
       if (e.code == 'requires-recent-login') {
         _showMessage(
-          'Security Alert: Please Log out and Log in again to update sensitive info.',
+          'Security Alert: Please log out and sign in again to update sensitive details.',
           isError: true,
         );
       } else {
         _showMessage('Error: ${e.message}', isError: true);
       }
     } catch (e) {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) setState(() => isSaving = false);
       _showMessage('Error: $e', isError: true);
     }
   }
@@ -146,24 +162,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } on FirebaseAuthException catch (e) {
       if (e.code == 'requires-recent-login') {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Please log out and log in again to delete your account.',
-              ),
-            ),
-          );
-        }
+        _showMessage('Please sign in again before deleting your account.',
+            isError: true);
       } else {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Error: ${e.message}')));
-        }
+        _showMessage('Error: ${e.message}', isError: true);
       }
     } catch (e) {
-      debugPrint('Error deleting account: $e');
+      _showMessage('Error deleting account: $e', isError: true);
     }
   }
 
@@ -178,191 +183,395 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showDeleteConfirmDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
+
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Delete Account'),
-            content: const Text(
-              'Are you sure? This cannot be undone and you will lose all your data.',
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.large),
+        title: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: AppColors.destructive,
+              size: AppIconSize.lg,
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _deleteAccount();
-                },
-                child: const Text(
-                  'Delete',
-                  style: TextStyle(color: Colors.red),
-                ),
-              ),
-            ],
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(child: Text('Delete account', style: AppTypography.title.copyWith(color: textPrimary))),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete your CareFlow account? This action is permanent and cannot be undone.',
+          style: AppTypography.body.copyWith(color: textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel', style: AppTypography.label.copyWith(color: textSecondary)),
           ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteAccount();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.destructive,
+              foregroundColor: Colors.white,
+              minimumSize: const Size(0, AppMetrics.controlHeight),
+            ),
+            child: Text('Delete permanently', style: AppTypography.label),
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (isLoading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
+    final initials = _nameController.text.isNotEmpty
+        ? _nameController.text
+            .trim()
+            .split(' ')
+            .map((n) => n.isNotEmpty ? n[0] : '')
+            .take(2)
+            .join()
+        : (isDoctor ? 'DR' : 'PT');
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          'My Profile',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
+        title: const Text('My profile'),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.red),
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: AppColors.primary,
+              size: AppIconSize.md,
+            ),
+            tooltip: 'Sign out',
             onPressed: _logout,
           ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: AppSpacing.screen,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const CircleAvatar(
-              radius: 50,
-              backgroundColor: kPrimaryBlue,
-              child: Icon(Icons.person, size: 50, color: Colors.white),
-            ),
-            const SizedBox(height: 30),
-            _buildTextField('Full Name', _nameController, Icons.person),
-            const SizedBox(height: 15),
-            _buildTextField(
-              'Email Address',
-              _emailController,
-              Icons.email,
-              keyboardType: TextInputType.emailAddress,
-            ),
-            const SizedBox(height: 15),
-            _buildTextField(
-              'New Password',
-              _passwordController,
-              Icons.lock,
-              isPassword: true,
-              helperText: 'Leave empty to keep current',
-            ),
-            const SizedBox(height: 15),
-            if (isDoctor) ...[
-              _buildSpecialtyDropdown(),
-              const SizedBox(height: 15),
-              _buildTextField(
-                'About (Bio)',
-                _bioController,
-                Icons.info,
-                maxLines: 3,
-              ),
-              const SizedBox(height: 15),
-            ],
-            const SizedBox(height: 40),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _showDeleteConfirmDialog,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE53935),
-                  foregroundColor: Colors.white,
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            // User header
+            AppCard(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppAvatar(initials: initials, size: 56),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _nameController.text.isNotEmpty
+                              ? (isDoctor
+                                  ? 'Dr. ${_nameController.text}'
+                                  : _nameController.text)
+                              : 'CareFlow user',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              AppTypography.title.copyWith(color: textPrimary),
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Text(
+                          _emailController.text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption
+                              .copyWith(color: textSecondary),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.xs,
+                          children: [
+                            AppBadge(
+                              label: isDoctor
+                                  ? 'Certified doctor'
+                                  : 'Verified patient',
+                            ),
+                            if (isDoctor && _selectedSpecialty != null)
+                              AppBadge(
+                                label: _selectedSpecialty!,
+                                variant: AppBadgeVariant.neutral,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                child: const Text(
-                  'Delete Account',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+                ],
               ),
             ),
-            const SizedBox(height: 15),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _updateProfile,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kPrimaryBlue,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+
+            const SizedBox(height: AppSpacing.md),
+
+            // Appearance & theme
+            AppCard(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.md,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.cardTintDark
+                          : AppColors.surfaceSunken,
+                      borderRadius: AppRadius.small,
+                    ),
+                    child: Icon(
+                      isDark
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      size: AppIconSize.md,
+                      color: isDark ? AppColors.primary : AppColors.warningText,
+                    ),
                   ),
-                  elevation: 2,
-                ),
-                child: const Text(
-                  'Save Changes',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Appearance',
+                          style:
+                              AppTypography.label.copyWith(color: textPrimary),
+                        ),
+                        Text(
+                          isDark ? 'Dark theme' : 'Light theme',
+                          style: AppTypography.caption
+                              .copyWith(color: textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Switch.adaptive(
+                    value: isDark,
+                    onChanged: (val) {
+                      themeProvider.setThemeMode(
+                        val ? ThemeMode.dark : ThemeMode.light,
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 30),
+
+            const SizedBox(height: AppSpacing.xl),
+
+            // Profile edit form
+            const AppSectionHeader(title: 'Account information'),
+            const SizedBox(height: AppSpacing.sm),
+
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Full name
+                  _buildLabel('Full name', textPrimary),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.person_outline_rounded),
+                    ),
+                  ),
+
+                  const SizedBox(height: AppSpacing.md),
+
+                  // Email
+                  _buildLabel('Email address', textPrimary),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.mail_outline_rounded),
+                    ),
+                  ),
+
+                  const SizedBox(height: AppSpacing.md),
+
+                  // Password
+                  _buildLabel('New password (optional)', textPrimary),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    decoration: InputDecoration(
+                      hintText: 'Leave blank to keep unchanged',
+                      prefixIcon: const Icon(Icons.lock_outline_rounded),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: AppIconSize.md,
+                        ),
+                        tooltip: _obscurePassword
+                            ? 'Show password'
+                            : 'Hide password',
+                        onPressed: () => setState(
+                            () => _obscurePassword = !_obscurePassword),
+                      ),
+                    ),
+                  ),
+
+                  if (isDoctor) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _buildLabel('Medical specialty', textPrimary),
+                    const SizedBox(height: AppSpacing.sm),
+                    Container(
+                      constraints: const BoxConstraints(
+                        minHeight: AppMetrics.controlHeight,
+                      ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.cardTintDark
+                            : AppColors.surfaceSunken,
+                        borderRadius: AppRadius.medium,
+                        border: Border.all(color: AppColors.border(isDark)),
+                      ),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: _selectedSpecialty,
+                          isExpanded: true,
+                          dropdownColor: AppColors.card(isDark),
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            size: AppIconSize.md,
+                          ),
+                          style:
+                              AppTypography.body.copyWith(color: textPrimary),
+                          hint: Text(
+                            'Select a specialty',
+                            style: AppTypography.body.copyWith(
+                              color: isDark
+                                  ? AppColors.textTertiaryDark
+                                  : AppColors.textTertiaryLight,
+                            ),
+                          ),
+                          items: kSpecialties.map((String value) {
+                            return DropdownMenuItem<String>(
+                              value: value,
+                              child: Text(
+                                value,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            );
+                          }).toList(),
+                          onChanged: (val) =>
+                              setState(() => _selectedSpecialty = val),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    _buildLabel('Doctor bio and qualifications', textPrimary),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextField(
+                      controller: _bioController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        hintText:
+                            'Describe your clinical background and practice areas.',
+                        contentPadding: EdgeInsets.all(AppSpacing.md),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  // Save changes
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isSaving ? null : _updateProfile,
+                      child: isSaving
+                          ? const SizedBox(
+                              width: AppIconSize.md,
+                              height: AppIconSize.md,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Save changes'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.lg),
+
+            // Danger zone
+            AppCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Delete account',
+                    style: AppTypography.label
+                        .copyWith(color: AppColors.destructive),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Permanently erase your profile and medical data.',
+                    style: AppTypography.caption.copyWith(color: textSecondary),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _showDeleteConfirmDialog,
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: AppIconSize.md,
+                      ),
+                      label: const Text('Delete account'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.destructive,
+                        side: const BorderSide(color: AppColors.destructive),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xl),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildSpecialtyDropdown() {
-    return DropdownButtonFormField<String>(
-      initialValue: _selectedSpecialty,
-      items:
-          kSpecialties.map((String value) {
-            return DropdownMenuItem<String>(value: value, child: Text(value));
-          }).toList(),
-      onChanged:
-          (newValue) => setState(() => _selectedSpecialty = newValue),
-      decoration: InputDecoration(
-        labelText: 'Specialty',
-        prefixIcon: const Icon(Icons.work, color: Colors.grey),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-      ),
-    );
-  }
-
-  Widget _buildTextField(
-    String label,
-    TextEditingController controller,
-    IconData icon, {
-    int maxLines = 1,
-    bool isPassword = false,
-    TextInputType keyboardType = TextInputType.text,
-    String? helperText,
-  }) {
-    return TextField(
-      controller: controller,
-      maxLines: maxLines,
-      obscureText: isPassword,
-      keyboardType: keyboardType,
-      decoration: InputDecoration(
-        labelText: label,
-        helperText: helperText,
-        helperStyle: const TextStyle(color: Colors.grey, fontSize: 12),
-        prefixIcon: Icon(icon, color: Colors.grey),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey.shade300),
-        ),
-        filled: true,
-        fillColor: Colors.grey.shade50,
-      ),
+  Widget _buildLabel(String text, Color color) {
+    return Text(
+      text,
+      style: AppTypography.label.copyWith(color: color),
     );
   }
 }

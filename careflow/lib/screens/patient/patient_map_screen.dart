@@ -4,7 +4,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../common/base_map_screen.dart';
 import '../../models/user.dart';
-
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
 import 'doctor_details_screen.dart';
 
 class PatientMapScreen extends BaseMapScreen {
@@ -16,7 +19,6 @@ class PatientMapScreen extends BaseMapScreen {
 
 class _PatientMapScreenState extends BaseMapState<PatientMapScreen> {
   List<UserModel> doctors = [];
-
   UserModel? selectedDoctor;
 
   @override
@@ -34,15 +36,11 @@ class _PatientMapScreenState extends BaseMapState<PatientMapScreen> {
 
       setState(() {
         doctors = snapshot.docs
-            .map((doc) {
-              return UserModel.fromMap(doc.data(), doc.id);
-            })
-            .where(
-                (doctor) => doctor.latitude != null && doctor.longitude != null)
+            .map((doc) => UserModel.fromMap(doc.data(), doc.id))
+            .where((doctor) => doctor.latitude != null && doctor.longitude != null)
             .toList();
       });
     } catch (e) {
-      
       debugPrint('Error fetching doctors: $e');
     }
   }
@@ -53,8 +51,8 @@ class _PatientMapScreenState extends BaseMapState<PatientMapScreen> {
       return Marker(
         markerId: MarkerId(doctor.id),
         position: LatLng(doctor.latitude!, doctor.longitude!),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue),
-        infoWindow: InfoWindow(title: doctor.name, snippet: doctor.specialty),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        infoWindow: InfoWindow(title: 'Dr. ${doctor.name}', snippet: doctor.specialty),
         onTap: () {
           setState(() {
             selectedDoctor = doctor;
@@ -79,108 +77,143 @@ class _PatientMapScreenState extends BaseMapState<PatientMapScreen> {
   Widget? buildBottomPanel() {
     if (selectedDoctor == null) return null;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final initials = selectedDoctor!.name.isNotEmpty
+        ? selectedDoctor!.name.trim().split(' ').map((n) => n.isNotEmpty ? n[0] : '').take(2).join()
+        : 'DR';
+
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(25),
-            topRight: Radius.circular(25),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.1),
-              blurRadius: 15,
-              offset: const Offset(0, -5),
-            )
-          ]),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const CircleAvatar(
-                backgroundColor: Colors.blueAccent,
-                child: Icon(Icons.local_hospital, color: Colors.white),
-              ),
-              const SizedBox(width: 15),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(selectedDoctor!.name,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                    Text(
-                      selectedDoctor!.specialty ?? 'General',
-                      style:
-                          TextStyle(color: Colors.grey.shade600, fontSize: 14),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          
-          Row(
-            children: [
-              
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue,
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15)),
-                    elevation: 2,
-                  ),
-                  onPressed: () => _openGoogleMapsDirections(
-                      selectedDoctor!.latitude!, selectedDoctor!.longitude!),
-                  icon: const Icon(Icons.directions_car, color: Colors.white),
-                  label: const Text('Directions',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
-                ),
-              ),
-              const SizedBox(width: 10),
-
-              
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blue, 
-                    foregroundColor: Colors.white, 
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(15)), 
-                    elevation: 2,
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DoctorDetailsScreen(
-                          doctorName: selectedDoctor!.name,
-                          specialty: selectedDoctor!.specialty ?? 'General',
-                          doctorId: selectedDoctor!.id,
-                        ),
+        color: Theme.of(context).cardColor,
+        borderRadius: AppRadius.sheet,
+        boxShadow: AppShadows.raised,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                AppAvatar(initials: initials, size: 48),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              'Dr. ${selectedDoctor!.name}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.section.copyWith(
+                                color: textPrimary,
+                              ),
+                            ),
+                          ),
+                          if (selectedDoctor!.isVerified == true) ...[
+                            const SizedBox(width: AppSpacing.xs),
+                            const Icon(
+                              Icons.verified_rounded,
+                              color: AppColors.primary,
+                              size: AppIconSize.sm,
+                            ),
+                          ],
+                        ],
                       ),
-                    );
-                  },
-                  icon: const Icon(Icons.person, color: Colors.white),
-                  label: const Text('View Profile',
-                      style:
-                          TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: AppSpacing.xs),
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          AppBadge(
+                            label: selectedDoctor!.specialty ?? 'General',
+                            variant: AppBadgeVariant.primary,
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.star_rounded,
+                                size: 13,
+                                color: AppColors.starAmber,
+                              ),
+                              const SizedBox(width: 2),
+                              Text(
+                                (selectedDoctor!.rating ?? 5.0)
+                                    .toStringAsFixed(1),
+                                style: AppTypography.caption.copyWith(
+                                  color: textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
+                IconButton(
+                  tooltip: 'Close',
+                  icon: const Icon(Icons.close_rounded),
+                  color: textSecondary,
+                  onPressed: () => setState(() => selectedDoctor = null),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.lg),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _openGoogleMapsDirections(
+                  selectedDoctor!.latitude!,
+                  selectedDoctor!.longitude!,
+                ),
+                icon: const Icon(
+                  Icons.near_me_rounded,
+                  size: AppIconSize.sm,
+                ),
+                label: const Text('Directions'),
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => DoctorDetailsScreen(
+                        doctorName: selectedDoctor!.name,
+                        specialty: selectedDoctor!.specialty ?? 'General',
+                        doctorId: selectedDoctor!.id,
+                        latitude: selectedDoctor!.latitude,
+                        longitude: selectedDoctor!.longitude,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(
+                  Icons.calendar_today_rounded,
+                  size: AppIconSize.sm,
+                ),
+                label: const Text('Book Slot'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -193,24 +226,30 @@ class _PatientMapScreenState extends BaseMapState<PatientMapScreen> {
         await launchUrl(googleMapsUrl);
       } else {
         final Uri browserUrl = Uri.parse(
-            'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng');
+          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng',
+        );
         if (await canLaunchUrl(browserUrl)) {
           await launchUrl(browserUrl, mode: LaunchMode.externalApplication);
         } else {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              
-              const SnackBar(content: Text('Cannot open maps on this device.')),
+              SnackBar(
+                content: const Text('Could not open map directions'),
+                backgroundColor: AppColors.destructive,
+                behavior: SnackBarBehavior.floating,
+              ),
             );
           }
         }
       }
-    } catch (e) {
+    } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          
-          const SnackBar(
-              content: Text('An error occurred while opening maps.')),
+          SnackBar(
+            content: const Text('Error launching navigation'),
+            backgroundColor: AppColors.destructive,
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     }

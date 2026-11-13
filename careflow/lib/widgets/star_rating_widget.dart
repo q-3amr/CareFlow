@@ -1,22 +1,17 @@
-﻿
-
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import '../utils/app_colors.dart';
 
 class StarRatingWidget extends StatefulWidget {
-
   final double initialRating;
-
-final ValueChanged<double>? onRatingChanged;
-
-final double starSize;
-
-final bool isReadOnly;
+  final ValueChanged<double>? onRatingChanged;
+  final double starSize;
+  final bool isReadOnly;
 
   const StarRatingWidget({
     super.key,
     this.initialRating = 5.0,
     this.onRatingChanged,
-    this.starSize = 32.0,
+    this.starSize = 24.0,
     this.isReadOnly = false,
   });
 
@@ -33,7 +28,7 @@ class _StarRatingWidgetState extends State<StarRatingWidget> {
     _currentRating = widget.initialRating.clamp(0.0, 5.0);
   }
 
-@override
+  @override
   void didUpdateWidget(StarRatingWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialRating != oldWidget.initialRating) {
@@ -50,7 +45,7 @@ class _StarRatingWidgetState extends State<StarRatingWidget> {
     widget.onRatingChanged?.call(newRating);
   }
 
-IconData _iconForStar(int starIndex) {
+  IconData _iconForStar(int starIndex) {
     if (_currentRating >= starIndex) {
       return Icons.star_rounded;
     } else if (_currentRating >= starIndex - 0.5) {
@@ -62,34 +57,34 @@ IconData _iconForStar(int starIndex) {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(5, (i) {
-        final starIndex = i + 1;
-        final icon = _iconForStar(starIndex);
-        final isFilled = icon != Icons.star_outline_rounded;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final unfilledColor =
+        isDark ? AppColors.borderDark : AppColors.borderLight;
 
-        if (widget.isReadOnly) {
-          return Icon(
-            icon,
-            color: isFilled ? Colors.amber : Colors.grey.shade300,
-            size: widget.starSize,
-          );
-        }
+    final stars = List.generate(5, (i) {
+      final starIndex = i + 1;
+      final icon = _iconForStar(starIndex);
+      final isFilled = icon != Icons.star_outline_rounded;
 
-return GestureDetector(
-          onTap: () => _onStarTapped(starIndex),
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 150),
-            child: Icon(
-              key: ValueKey('$starIndex-$_currentRating'),
-              icon,
-              color: isFilled ? Colors.amber : Colors.grey.shade300,
-              size: widget.starSize,
-            ),
-          ),
-        );
-      }),
-    );
+      final starIcon = Icon(
+        icon,
+        color: isFilled ? AppColors.starAmber : unfilledColor,
+        size: widget.starSize,
+      );
+
+      if (widget.isReadOnly) return starIcon;
+
+      return InkResponse(
+        onTap: () => _onStarTapped(starIndex),
+        radius: 24,
+        child: SizedBox(
+          width: 48,
+          height: 48,
+          child: Center(child: starIcon),
+        ),
+      );
+    });
+
+    return Row(mainAxisSize: MainAxisSize.min, children: stars);
   }
 }

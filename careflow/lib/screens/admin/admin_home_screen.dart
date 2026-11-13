@@ -1,8 +1,14 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../services/database_service.dart';
 import '../../services/auth_service.dart';
 import '../../models/user.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_empty_state.dart';
+import '../../widgets/app_section_header.dart';
 import '../../auth_wrapper.dart';
 
 class AdminHomeScreen extends StatelessWidget {
@@ -12,17 +18,21 @@ class AdminHomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final db = DatabaseService();
     final auth = AuthService();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary = AppColors.textSecondary(isDark);
 
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('Admin Dashboard',
-            style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
+        automaticallyImplyLeading: false,
+        title: const Text('Admin dashboard'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout, color: Colors.red),
+            tooltip: 'Sign out',
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: AppColors.primary,
+              size: AppIconSize.md,
+            ),
             onPressed: () async {
               await auth.signOut();
               if (context.mounted) {
@@ -33,62 +43,137 @@ class AdminHomeScreen extends StatelessWidget {
                 );
               }
             },
-          )
+          ),
         ],
       ),
       body: StreamBuilder<List<UserModel>>(
         stream: db.streamUnverifiedDoctors(),
         builder: (context, snapshot) {
-          if (snapshot.hasError)
-            return Center(child: Text('Error: ${snapshot.error}'));
-          if (!snapshot.hasData)
+          if (snapshot.hasError) {
+            return AppEmptyState(
+              icon: Icons.error_outline_rounded,
+              title: 'Could not load verifications',
+              message: '${snapshot.error}',
+              iconColor: AppColors.destructive,
+              iconBackgroundColor: isDark
+                  ? AppColors.destructiveSoftDark
+                  : AppColors.destructiveLight,
+            );
+          }
+          if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
+          }
 
           final doctors = snapshot.data!;
 
           if (doctors.isEmpty) {
-            return const Center(
-              child: Text('No pending doctor requests.',
-                  style: TextStyle(fontSize: 18, color: Colors.grey)),
+            return const AppEmptyState(
+              icon: Icons.verified_rounded,
+              title: 'All caught up',
+              message: 'No pending doctor verifications.',
             );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: doctors.length,
+            padding: AppSpacing.screen,
+            itemCount: doctors.length + 1,
             itemBuilder: (context, index) {
-              final doctor = doctors[index];
-              return Card(
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15)),
-                margin: const EdgeInsets.only(bottom: 15),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
-                  leading: CircleAvatar(
-                    backgroundColor: kPrimaryBlue.withValues(alpha: 0.1),
-                    radius: 30,
-                    child:
-                        const Icon(Icons.medical_services, color: kPrimaryBlue),
-                  ),
-                  title: Text(doctor.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 18)),
-                  subtitle: Text(
-                      '${doctor.specialty ?? 'General'} - ${doctor.email}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
+              if (index == 0) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.red),
-                        onPressed: () async {
-                          await db.deleteUser(doctor.id);
-                        },
+                      AppSectionHeader(
+                        title: 'Pending verifications',
+                        trailing: AppBadge(
+                          label: '${doctors.length} pending',
+                          variant: AppBadgeVariant.warning,
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.check, color: Colors.green),
-                        onPressed: () async {
-                          await db.approveDoctor(doctor.id);
-                        },
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Review credentials before approval',
+                        style: AppTypography.caption
+                            .copyWith(color: textSecondary),
+                      ),
+                    ],
+                  ),
+                );
+              }
+
+              final doctor = doctors[index - 1];
+              final initial =
+                  doctor.name.isNotEmpty ? doctor.name[0].toUpperCase() : 'D';
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          AppAvatar(initials: initial, size: 44),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  doctor.name,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.section.copyWith(
+                                    color: AppColors.textPrimary(isDark),
+                                  ),
+                                ),
+                                const SizedBox(height: AppSpacing.xs),
+                                Text(
+                                  doctor.email,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.caption
+                                      .copyWith(color: textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      AppBadge(
+                        label: doctor.specialty ?? 'General',
+                        variant: AppBadgeVariant.neutral,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () async {
+                                await db.deleteUser(doctor.id);
+                              },
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.destructive,
+                                side: const BorderSide(
+                                  color: AppColors.destructive,
+                                ),
+                              ),
+                              child: const Text('Reject'),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () async {
+                                await db.approveDoctor(doctor.id);
+                              },
+                              child: const Text('Approve'),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

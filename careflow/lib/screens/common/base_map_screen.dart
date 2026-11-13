@@ -1,6 +1,8 @@
 ﻿import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 
 abstract class BaseMapScreen extends StatefulWidget {
   const BaseMapScreen({super.key});
@@ -30,30 +32,31 @@ abstract class BaseMapState<T extends BaseMapScreen> extends State<T> {
   }
 
   Future<void> _showLocationServiceDialog() async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
+
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          title: const Text('Enable Location',
-              style: TextStyle(fontWeight: FontWeight.bold)),
-          content: const Text(
-              'Please enable location services (GPS) to allow the app to determine your location accurately.'),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.large),
+          title: Text('Enable Location', style: AppTypography.title.copyWith(color: textPrimary)),
+          content: Text(
+              'Please enable location services (GPS) to allow the app to determine your location accurately.',
+              style: AppTypography.body.copyWith(color: textSecondary)),
           actions: <Widget>[
             TextButton(
-              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
               onPressed: () => Navigator.of(context).pop(),
+              child: Text('Cancel', style: AppTypography.label.copyWith(color: textSecondary)),
             ),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-              child:
-                  const Text('Settings', style: TextStyle(color: Colors.white)),
               onPressed: () {
                 Geolocator.openLocationSettings();
                 Navigator.of(context).pop();
               },
+              child: const Text('Settings'),
             ),
           ],
         );
@@ -107,19 +110,20 @@ abstract class BaseMapState<T extends BaseMapScreen> extends State<T> {
   void _showMessage(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.destructive,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final bottomPanel = buildBottomPanel();
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Map', style: TextStyle(color: Colors.black)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
-      ),
+      appBar: AppBar(title: const Text('Map')),
       body: Stack(
         children: [
           GoogleMap(
@@ -141,45 +145,45 @@ abstract class BaseMapState<T extends BaseMapScreen> extends State<T> {
                 true, // تفعيل زري الـ (+ و -) لتكبير وتصغير الخريطة
           ),
           Positioned(
-            bottom: buildBottomPanel() != null
-                ? 140
-                : 20, // لوجيك ذكي: إذا الابن عارض لوحة سفلية، ارفع زر الموقع لـ 140 بكسل عشان ما يتغطى، وإلا نزلّه لـ 20 بكسل
-            left: 16,
+            top: AppSpacing.lg,
+            right: AppSpacing.lg,
             child: ElevatedButton.icon(
               onPressed: isLoading ? null : requestLocationAndGetPosition,
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.blue,
-                elevation: 5,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                backgroundColor: Theme.of(context).cardColor,
+                foregroundColor: Theme.of(context).colorScheme.primary,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  side: const BorderSide(color: Colors.blue, width: 1),
+                  borderRadius: AppRadius.medium,
+                  side: BorderSide(color: Theme.of(context).dividerColor),
                 ),
               ),
               icon: isLoading
                   ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                          // حط جوة المربع دائرة تحميل بتلف باللون الأزرق
-                          strokeWidth: 2,
-                          color: Colors.blue))
-                  : const Icon(Icons.my_location, size: 20),
-              label: const Text(
-                'Current Location',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+                      width: AppIconSize.sm,
+                      height: AppIconSize.sm,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location, size: AppIconSize.md),
+              label: const Text('Current Location'),
             ),
           ),
-          if (isLoading) const Center(child: CircularProgressIndicator()),
-          if (buildBottomPanel() != null)
+          if (isLoading)
+            const Positioned(
+              top: AppSpacing.lg,
+              left: 0,
+              right: 0,
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          if (bottomPanel != null)
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
-              child: buildBottomPanel()!,
+              child: bottomPanel,
             ),
         ],
       ),

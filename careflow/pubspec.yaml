@@ -28,17 +28,46 @@ dependencies:
   flutter_native_splash: ^2.4.7
   provider: ^6.1.5+1
   uuid: ^4.5.3
+  shared_preferences: ^2.5.6
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
   fake_cloud_firestore: ^3.1.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/images/
+    - assets/branding/
+
+flutter_launcher_icons:
+  image_path: assets/branding/app_icon.png
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  adaptive_icon_background: "#2563EB"
+  adaptive_icon_foreground: assets/branding/app_icon_foreground.png
+  adaptive_icon_foreground_inset: 0
+  adaptive_icon_monochrome: assets/branding/app_icon_monochrome.png
+  web:
+    generate: true
+    image_path: assets/branding/app_icon.png
+    background_color: "#FFFFFF"
+    theme_color: "#2563EB"
+  windows:
+    generate: true
+    image_path: assets/branding/app_icon.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/branding/app_icon.png
 
 flutter_native_splash:
-  color: "#0D0F14"
+  color: "#F6F8FC"
+  image: assets/branding/careflow_logo.png
+  android_12:
+    color: "#F6F8FC"
+    image: assets/branding/careflow_logo.png

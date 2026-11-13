@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_empty_state.dart';
 import '../../widgets/star_rating_widget.dart';
 
 class DoctorReviewsScreen extends StatefulWidget {
@@ -14,42 +20,32 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
   @override
   void initState() {
     super.initState();
-
     _markReviewsAsSeen();
   }
 
   void _markReviewsAsSeen() async {
-    // هاي الدالة هي المسؤولة عن إخفاء تنبيهات "التقييمات الجديدة"
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    // التحقق من وجود مستخدم مسجل الدخول، إذا لم يوجد يتم الخروج من الدالة
     if (uid == null) return;
 
     try {
-      // جلب جميع المواعيد الخاصة بالطبيب الحالي
       final querySnapshot = await FirebaseFirestore.instance
-          .collection('appointments') //من جدول المواعيد
+          .collection('appointments')
           .where('doctor_id', isEqualTo: uid)
           .get();
 
-      // استخدام WriteBatch لتحديث عدة مستندات في قاعدة البيانات في نفس الوقت (لتحسين الأداء)
       WriteBatch batch = FirebaseFirestore.instance.batch();
       bool hasUpdates = false;
 
       for (var doc in querySnapshot.docs) {
         final data = doc.data();
-
         if (data['hasFeedback'] == true && data['isReviewSeen'] != true) {
-          //وبتدور على كل المواعيد اللي المريض ترك فيها تقييم لكن الدكتور لسا ما شافها
-          batch.update(doc.reference, {'isReviewSeen': true}); //يخليه seen
-          hasUpdates = true; //علشان نحدث الشاشة
+          batch.update(doc.reference, {'isReviewSeen': true});
+          hasUpdates = true;
         }
       }
 
-      // إذا كان هناك تقييمات جديدة لم تُرَ من قبل، نقوم بتنفيذ التحديثات
       if (hasUpdates) {
         await batch.commit();
-
-        // تحديث واجهة المستخدم بعد تغيير حالة التقييمات إلى مقروءة
         if (mounted) setState(() {});
       }
     } catch (e) {
@@ -57,11 +53,9 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
     }
   }
 
-  Widget _buildAggregateSummary(List<QueryDocumentSnapshot> docs) {
-    // إذا لم تكن هناك تقييمات، لا تعرض شيئًا
+  Widget _buildAggregateSummary(List<QueryDocumentSnapshot> docs, bool isDark) {
     if (docs.isEmpty) return const SizedBox.shrink();
 
-    // استخراج جميع التقييمات الرقمية وتجاهل القيم الفارغة
     final ratings = docs
         .map((d) => (d.data() as Map<String, dynamic>)['rating'])
         .where((r) => r != null)
@@ -70,60 +64,73 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
 
     if (ratings.isEmpty) return const SizedBox.shrink();
 
-    // حساب متوسط التقييمات وعددها الإجمالي
     final double average = ratings.reduce((a, b) => a + b) / ratings.length;
     final int count = ratings.length;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
 
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF407CE2), Color(0xFF6FA0FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF407CE2).withValues(alpha: 0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Text(
-            average.toStringAsFixed(1),
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 52,
-              fontWeight: FontWeight.w900,
-              height: 1.0,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              StarRatingWidget(
-                initialRating: average,
-                starSize: 22,
-                isReadOnly: true,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: AppCard(
+        child: Row(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: isDark ? AppColors.starSoftDark : AppColors.warningLight,
+                borderRadius: AppRadius.medium,
               ),
-              const SizedBox(height: 6),
-              Text(
-                '$count ${count == 1 ? 'Review' : 'Reviews'}',
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              alignment: Alignment.center,
+              child: Text(
+                average.toStringAsFixed(1),
+                style: AppTypography.display.copyWith(
+                  color: AppColors.starAmber,
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(width: AppSpacing.lg),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      StarRatingWidget(
+                        initialRating: average,
+                        starSize: AppIconSize.sm,
+                        isReadOnly: true,
+                      ),
+                      Text(
+                        '${average.toStringAsFixed(1)} / 5',
+                        style: AppTypography.label.copyWith(color: textPrimary),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      AppBadge(
+                        label: '$count ${count == 1 ? 'review' : 'reviews'}',
+                      ),
+                      Text(
+                        'Patient feedback',
+                        style: AppTypography.caption
+                            .copyWith(color: textSecondary),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -131,22 +138,14 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
   @override
   Widget build(BuildContext context) {
     final String uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: const Text('Patient Reviews',
-            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        leading: IconButton(
-          icon:
-              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
+        title: const Text('Patient reviews'),
       ),
-      // الاستماع المباشر (Real-time) للتقييمات الخاصة بالطبيب
       body: StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance
             .collection('appointments')
@@ -155,13 +154,11 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
             .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            // عرض مؤشر تحميل أثناء جلب البيانات
             return const Center(child: CircularProgressIndicator());
           }
 
           var docs = snapshot.data!.docs;
 
-          // ترتيب التقييمات بناءً على تاريخ الموعد (الأحدث أولاً)
           docs.sort((a, b) {
             final rawA = (a.data() as Map)['appointmentDateTime'];
             final rawB = (b.data() as Map)['appointmentDateTime'];
@@ -170,73 +167,76 @@ class _DoctorReviewsScreenState extends State<DoctorReviewsScreen> {
           });
 
           if (docs.isEmpty) {
-            // رسالة تظهر إذا لم يكن هناك أي تقييمات
-            return const Center(
-              child: Text('No reviews yet',
-                  style: TextStyle(color: Colors.grey, fontSize: 16)),
+            return AppEmptyState(
+              icon: Icons.star_outline_rounded,
+              title: 'No reviews yet',
+              message: 'Completed visits can leave feedback here.',
+              iconColor: AppColors.starAmber,
+              iconBackgroundColor:
+                  isDark ? AppColors.starSoftDark : AppColors.warningLight,
             );
           }
 
           return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            // إضافة 1 لعدد العناصر لأننا سنعرض ملخص التقييمات في أول عنصر
+            padding: AppSpacing.screen,
             itemCount: docs.length + 1,
             itemBuilder: (context, index) {
-              // العنصر الأول هو دائماً مربع ملخص التقييمات
-              if (index == 0) return _buildAggregateSummary(docs);
+              if (index == 0) return _buildAggregateSummary(docs, isDark);
 
-              // طرح 1 من الفهرس للحصول على التقييم الصحيح من القائمة
               final data = docs[index - 1].data() as Map<String, dynamic>;
               final double reviewRating =
                   (data['rating'] as num?)?.toDouble() ?? 0.0;
+              final name = data['patient_name'] ?? 'Patient';
+              final initial = name.isNotEmpty ? name[0].toUpperCase() : 'P';
 
-              return Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade100),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            data['patient_name'] ?? 'Patient',
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: AppCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          AppAvatar(initials: initial, size: 36),
+                          const SizedBox(width: AppSpacing.md),
+                          Expanded(
+                            child: Text(
+                              name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.label
+                                  .copyWith(color: textPrimary),
+                            ),
                           ),
-                        ),
-                        Row(
-                          children: [
-                            StarRatingWidget(
-                              initialRating: reviewRating,
-                              starSize: 18,
-                              isReadOnly: true,
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        children: [
+                          StarRatingWidget(
+                            initialRating: reviewRating,
+                            starSize: AppIconSize.sm,
+                            isReadOnly: true,
+                          ),
+                          Text(
+                            reviewRating.toStringAsFixed(1),
+                            style: AppTypography.label.copyWith(
+                              color: AppColors.starAmber,
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              reviewRating.toStringAsFixed(1),
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      data['feedback_text'] ?? 'No comment provided.',
-                      style:
-                          TextStyle(color: Colors.grey.shade700, height: 1.4),
-                    ),
-                  ],
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        data['feedback_text'] ?? 'No comment provided.',
+                        style:
+                            AppTypography.body.copyWith(color: textSecondary),
+                      ),
+                    ],
+                  ),
                 ),
               );
             },

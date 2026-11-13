@@ -1,9 +1,15 @@
-﻿
+﻿import 'package:flutter/material.dart';
+import 'app_colors.dart';
 
-import 'package:flutter/material.dart';
+// Re-export AppColors for convenient access
+export 'app_colors.dart';
 
-const Color kPrimaryBlue = Color(0xFF407CE2);
+// Brand colors (backward compatible)
+const Color kPrimaryBlue = AppColors.primary;
+const Color kHealthcareTeal = AppColors.healthcareTeal;
+const Color kLightMint = AppColors.lightMint;
 
+// Medical Specialties list
 const List<String> kSpecialties = [
   'General Medicine',
   'Dentistry',
@@ -22,5 +28,5 @@ const List<String> kSpecialties = [
   'ENT',
   'Pulmonology',
   'Endocrinology',
-  'Otolaryngology'
+  'Otolaryngology',
 ];

@@ -11,6 +11,8 @@ import 'services/database_service.dart'; // لحفظ الـ FCM Token عند ت�
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
+import 'providers/theme_provider.dart';
+import 'utils/app_theme.dart';
 import 'screens/common/chats_list_screen.dart';
 import 'screens/common/schedule_screen.dart';
 
@@ -84,6 +86,9 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider<ThemeProvider>(
+          create: (context) => ThemeProvider(),
+        ),
         ChangeNotifierProvider<ChatProvider>(
           create: (context) => ChatProvider(),
         ),
@@ -175,14 +180,15 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+
     return MaterialApp(
       navigatorKey: navigatorKey, // ← مطلوب للتنقل عند الضغط على الإشعارات
       debugShowCheckedModeBanner: false,
       title: 'CareFlow',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-      ),
+      themeMode: themeProvider.themeMode,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
       home: const AuthWrapper(),
     );
   }

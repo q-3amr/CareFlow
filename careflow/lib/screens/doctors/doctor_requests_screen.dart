@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/database_service.dart';
 import '../../services/message.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_empty_state.dart';
 
 class DoctorRequestsScreen extends StatefulWidget {
-  const DoctorRequestsScreen({super.key});
+  final bool isTab;
+
+  const DoctorRequestsScreen({super.key, this.isTab = false});
 
   @override
   State<DoctorRequestsScreen> createState() => _DoctorRequestsScreenState();
@@ -20,21 +27,20 @@ class _DoctorRequestsScreenState extends State<DoctorRequestsScreen> {
   String _formatDateTime(DateTime date) {
     final datePart = formatDateDisplay(date);
     final timePart = formatTimeFromDateTime(date);
-    return '$datePart | $timePart';
+    return '$datePart · $timePart';
   }
 
   Future<void> _acceptRequest(String docId, String patientId) async {
     await _db.updateAppointmentStatus(docId, 'accepted');
 
-    final token = await _db.getToken(
-        patientId); //جلب توكن المريض //هذا السطر هو الذي يبحث في قاعدة البيانات عن "العنوان الرقمي" (FCM Token) الخاص بجهاز المريض
+    final token = await _db.getToken(patientId);
     if (token.isNotEmpty) {
-      //ارسال القبول
       await _messageServices.sendNotificationToUser(
-          fcmToken: token,
-          title: 'Appointment Accepted',
-          body: 'Your appointment request has been accepted by the doctor.',
-          type: 'appointment');
+        fcmToken: token,
+        title: 'Appointment Accepted',
+        body: 'Your appointment request has been accepted by the doctor.',
+        type: 'appointment',
+      );
     }
   }
 
@@ -45,93 +51,62 @@ class _DoctorRequestsScreenState extends State<DoctorRequestsScreen> {
       cancelledBy: 'doctor',
     );
 
-    final token = await _db.getToken(patientId); //جلب توكن المريض
+    final token = await _db.getToken(patientId);
     if (token.isNotEmpty) {
-      //ارسال الرفض
       await _messageServices.sendNotificationToUser(
-          fcmToken: token,
-          title: 'Appointment Rejected',
-          body: 'Your appointment request has been rejected by the doctor.',
-          type: 'appointment');
+        fcmToken: token,
+        title: 'Appointment Rejected',
+        body: 'Your appointment request has been rejected by the doctor.',
+        type: 'appointment',
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        leading: IconButton(
-          icon:
-              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text(
-          'Pending Requests',
-          style: TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w900,
-            fontSize: 20,
-          ),
-        ),
+        automaticallyImplyLeading: !widget.isTab,
+        title: const Text('Pending requests'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: StreamBuilder<dynamic>(
-          stream: user?.uid != null
-              ? _db.streamPendingAppointments(user!.uid)
-              : null,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.inbox_rounded,
-                      size: 80,
-                      color: Colors.grey.shade300,
-                    ),
-                    const SizedBox(height: 15),
-                    Text(
-                      'No pending requests',
-                      style: TextStyle(
-                        color: Colors.grey.shade500,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            }
+      body: StreamBuilder<dynamic>(
+        stream:
+            user?.uid != null ? _db.streamPendingAppointments(user!.uid) : null,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const AppEmptyState(
+              icon: Icons.inbox_rounded,
+              title: 'No pending requests',
+              message: 'New patient requests will appear here.',
+            );
+          }
 
-            final requests = snapshot.data!.docs;
+          final requests = snapshot.data!.docs;
 
-            return ListView.builder(
-              itemCount: requests.length,
-              itemBuilder: (context, index) {
-                final req = requests[index];
-                final data = req.data() as Map<String, dynamic>;
-                final dateObj = parseDate(data['appointmentDateTime']);
+          return ListView.builder(
+            padding: AppSpacing.screen,
+            itemCount: requests.length,
+            itemBuilder: (context, index) {
+              final req = requests[index];
+              final data = req.data() as Map<String, dynamic>;
+              final dateObj = parseDate(data['appointmentDateTime']);
 
-                return _buildRequestCard(
+              return Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: _buildRequestCard(
                   name: data['patient_name'] ?? 'Unknown',
                   date: _formatDateTime(dateObj),
                   docId: req.id,
-                  patientId:
-                      data['patient_id'] ?? '', // ← معرف المريض لإرسال الإشعار
-                );
-              },
-            );
-          },
-        ),
+                  patientId: data['patient_id'] ?? '',
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }
@@ -140,69 +115,47 @@ class _DoctorRequestsScreenState extends State<DoctorRequestsScreen> {
     required String name,
     required String date,
     required String docId,
-    required String patientId, // ← معرف المريض لإرسال إشعار القبول/الرفض
+    required String patientId,
   }) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 20),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.grey.shade100),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.08),
-            blurRadius: 15,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textSecondary = AppColors.textSecondary(isDark);
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : 'P';
+
+    return AppCard(
       child: Column(
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.blue.shade100, width: 2),
-                ),
-                child: const CircleAvatar(
-                  radius: 28,
-                  backgroundColor: Colors.blue,
-                  child: Icon(Icons.person, color: Colors.white, size: 30),
-                ),
-              ),
-              const SizedBox(width: 15),
+              AppAvatar(initials: initial, size: 44),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       name,
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.section.copyWith(
+                        color: AppColors.textPrimary(isDark),
                       ),
                     ),
-                    const SizedBox(height: 5),
+                    const SizedBox(height: AppSpacing.xs),
                     Row(
                       children: [
                         Icon(
-                          Icons.access_time_filled_rounded,
-                          size: 16,
-                          color: Colors.grey.shade500,
+                          Icons.schedule_rounded,
+                          size: AppIconSize.sm,
+                          color: textSecondary,
                         ),
-                        const SizedBox(width: 6),
-                        Flexible(
+                        const SizedBox(width: AppSpacing.xs),
+                        Expanded(
                           child: Text(
                             date,
-                            overflow: TextOverflow.ellipsis,
                             maxLines: 1,
-                            style: TextStyle(
-                              color: Colors.grey.shade600,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption.copyWith(
+                              color: textSecondary,
                             ),
                           ),
                         ),
@@ -211,47 +164,31 @@ class _DoctorRequestsScreenState extends State<DoctorRequestsScreen> {
                   ],
                 ),
               ),
+              const SizedBox(width: AppSpacing.sm),
+              const AppBadge(
+                label: 'Pending',
+                variant: AppBadgeVariant.warning,
+              ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: AppSpacing.md),
           Row(
             children: [
               Expanded(
-                child: ElevatedButton(
+                child: OutlinedButton(
                   onPressed: () => _declineRequest(docId, patientId),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red.shade50,
-                    foregroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    elevation: 0,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.destructive,
+                    side: const BorderSide(color: AppColors.destructive),
                   ),
-                  child: const Text(
-                    'Decline',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
+                  child: const Text('Decline'),
                 ),
               ),
-              const SizedBox(width: 15),
+              const SizedBox(width: AppSpacing.md),
               Expanded(
                 child: ElevatedButton(
                   onPressed: () => _acceptRequest(docId, patientId),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryBlue,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 15),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    elevation: 5,
-                    shadowColor: kPrimaryBlue.withValues(alpha: 0.4),
-                  ),
-                  child: const Text(
-                    'Accept',
-                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                  ),
+                  child: const Text('Accept'),
                 ),
               ),
             ],

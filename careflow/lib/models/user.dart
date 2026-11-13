@@ -42,6 +42,8 @@ class UserModel {
       email: map['email'] ?? '',
       name: map['name'] ?? '',
       pushToken: map['pushToken'] ?? '',
+      // Legacy accounts created before roles existed have no role field.
+      // They are patients (least privilege), never doctors or admins.
       role: map['role'] ?? 'patient',
       profileImage: map['profileImage'],
       specialty: map['specialty'],

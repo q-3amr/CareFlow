@@ -1,8 +1,11 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/database_service.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_empty_state.dart';
 
 class ManageSlotsScreen extends StatefulWidget {
   const ManageSlotsScreen({super.key});
@@ -14,6 +17,30 @@ class ManageSlotsScreen extends StatefulWidget {
 class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
   final _db = DatabaseService();
   final User? user = FirebaseAuth.instance.currentUser;
+
+  static const List<String> _weekdays = [
+    'Sun',
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+  ];
+  static const List<String> _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   DateTime _selectedDate = DateTime.now();
   List<String> _mySlots = [];
@@ -36,11 +63,12 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
           : [];
 
       if (allAddedSlots.isEmpty) {
-        if (mounted)
+        if (mounted) {
           setState(() {
             _mySlots = [];
             _isLoading = false;
           });
+        }
         return;
       }
 
@@ -52,7 +80,6 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
       final List<String> bookedTimes = [];
       for (var doc in appointmentsSnap.docs) {
         final data = doc.data() as Map<String, dynamic>;
-
         final DateTime apptDate = parseDate(data['appointmentDateTime']);
 
         if (apptDate.year == date.year &&
@@ -85,18 +112,19 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
             if (slotTime.isBefore(now)) {
               return false;
             }
-          } catch (e) {
-            
+          } catch (_) {
+            // Ignore malformed slot strings.
           }
         }
         return true;
       }).toList();
 
-      if (mounted)
+      if (mounted) {
         setState(() {
           _mySlots = freeSlots;
           _isLoading = false;
         });
+      }
     } catch (e) {
       debugPrint('Error loading slots: $e');
       if (mounted) setState(() => _isLoading = false);
@@ -122,9 +150,10 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
       if (slotDateTime.isBefore(now)) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Cannot add a time in the past!'),
-            backgroundColor: Colors.red,
+          SnackBar(
+            content: const Text('Cannot add a time in the past.'),
+            backgroundColor: AppColors.destructive,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         return;
@@ -133,9 +162,10 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
       if (slotDateTime.isBefore(now.add(const Duration(minutes: 20)))) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please give at least 20 min notice.'),
-            backgroundColor: Color.fromARGB(255, 255, 193, 7),
+          SnackBar(
+            content: const Text('Please give at least 20 min notice.'),
+            backgroundColor: AppColors.warning,
+            behavior: SnackBarBehavior.floating,
           ),
         );
         return;
@@ -152,9 +182,10 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
       } else {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Slot already exists or is booked!'),
-            backgroundColor: Colors.red,
+          SnackBar(
+            content: const Text('Slot already exists or is booked.'),
+            backgroundColor: AppColors.destructive,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }
@@ -172,110 +203,115 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
+    final cardBg = AppColors.card(isDark);
+    final borderColor = AppColors.border(isDark);
+
+    final dateLabel =
+        '${_weekdays[_selectedDate.weekday % 7]}, ${_months[_selectedDate.month - 1]} ${_selectedDate.day}';
+
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text(
-          'Manage Availability',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.black),
+        title: const Text('Manage availability'),
       ),
       body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(vertical: 20),
-            color: Colors.grey.shade50,
-            child: SizedBox(
-              height: 80,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: 14,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemBuilder: (context, index) {
-                  final day = DateTime.now().add(Duration(days: index));
-                  final isSelected = day.day == _selectedDate.day;
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() => _selectedDate = day);
-                      _loadSlotsForDate(day);
-                    },
-                    child: Container(
-                      width: 60,
-                      margin: const EdgeInsets.only(right: 10),
-                      decoration: BoxDecoration(
-                        color: isSelected ? kPrimaryBlue : Colors.white,
-                        borderRadius: BorderRadius.circular(15),
-                        border: Border.all(
-                          color:
-                              isSelected ? kPrimaryBlue : Colors.grey.shade300,
-                        ),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: kPrimaryBlue.withValues(alpha: 0.3),
-                                  blurRadius: 8,
-                                ),
-                              ]
-                            : [],
+          SizedBox(
+            height: 92,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: 14,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.md,
+                AppSpacing.lg,
+                AppSpacing.sm,
+              ),
+              itemBuilder: (context, index) {
+                final day = DateTime.now().add(Duration(days: index));
+                final isSelected = day.day == _selectedDate.day &&
+                    day.month == _selectedDate.month &&
+                    day.year == _selectedDate.year;
+                return Container(
+                  width: 54,
+                  margin: const EdgeInsets.only(right: AppSpacing.sm),
+                  child: Material(
+                    color: isSelected ? AppColors.primary : cardBg,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: AppRadius.medium,
+                      side: BorderSide(
+                        color: isSelected ? AppColors.primary : borderColor,
                       ),
+                    ),
+                    child: InkWell(
+                      borderRadius: AppRadius.medium,
+                      onTap: () {
+                        setState(() => _selectedDate = day);
+                        _loadSlotsForDate(day);
+                      },
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            [
-                              'Sun',
-                              'Mon',
-                              'Tue',
-                              'Wed',
-                              'Thu',
-                              'Fri',
-                              'Sat',
-                            ][day.weekday % 7],
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.grey,
-                              fontSize: 12,
+                            _weekdays[day.weekday % 7],
+                            style: AppTypography.caption.copyWith(
+                              color: isSelected ? Colors.white : textSecondary,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
+                          const SizedBox(height: AppSpacing.xs),
                           Text(
                             '${day.day}',
-                            style: TextStyle(
-                              color: isSelected ? Colors.white : Colors.black,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 20,
+                            style: AppTypography.title.copyWith(
+                              color: isSelected ? Colors.white : textPrimary,
                             ),
                           ),
                         ],
                       ),
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.sm,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Slots for ${_selectedDate.day}/${_selectedDate.month}',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Available slots',
+                        style:
+                            AppTypography.section.copyWith(color: textPrimary),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        dateLabel,
+                        style: AppTypography.caption
+                            .copyWith(color: textSecondary),
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(width: AppSpacing.md),
                 ElevatedButton.icon(
                   onPressed: _addSlot,
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add Time'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryBlue,
-                    foregroundColor: Colors.white,
+                  icon: const Icon(
+                    Icons.add_rounded,
+                    size: AppIconSize.md,
                   ),
+                  label: const Text('Add time'),
                 ),
               ],
             ),
@@ -284,43 +320,68 @@ class _ManageSlotsScreenState extends State<ManageSlotsScreen> {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _mySlots.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No available slots.',
-                          style: TextStyle(color: Colors.grey.shade400),
-                        ),
+                    ? const AppEmptyState(
+                        icon: Icons.schedule_rounded,
+                        title: 'No slots for this day',
+                        message: 'Add a time to open availability.',
                       )
-                    : ListView(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        children: _mySlots
-                            .map(
-                              (slot) => Card(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: ListTile(
-                                  leading: const Icon(
-                                    Icons.access_time,
-                                    color: Colors.blue,
-                                  ),
-                                  title: Text(
-                                    slot,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          0,
+                          AppSpacing.lg,
+                          AppSpacing.xl,
+                        ),
+                        itemCount: _mySlots.length,
+                        itemBuilder: (context, index) {
+                          final slot = _mySlots[index];
+                          return Padding(
+                            padding: const EdgeInsets.only(
+                              bottom: AppSpacing.sm,
+                            ),
+                            child: AppCard(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.md,
+                                vertical: AppSpacing.sm,
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding:
+                                        const EdgeInsets.all(AppSpacing.sm),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primary.withValues(
+                                          alpha: isDark ? 0.18 : 0.10),
+                                      borderRadius: AppRadius.small,
+                                    ),
+                                    child: const Icon(
+                                      Icons.access_time_rounded,
+                                      color: AppColors.primary,
+                                      size: AppIconSize.md,
                                     ),
                                   ),
-                                  trailing: IconButton(
+                                  const SizedBox(width: AppSpacing.md),
+                                  Expanded(
+                                    child: Text(
+                                      slot,
+                                      style: AppTypography.label
+                                          .copyWith(color: textPrimary),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Remove slot',
                                     icon: const Icon(
-                                      Icons.delete_outline,
-                                      color: Colors.red,
+                                      Icons.delete_outline_rounded,
+                                      color: AppColors.destructive,
+                                      size: AppIconSize.md,
                                     ),
                                     onPressed: () => _removeSlot(slot),
                                   ),
-                                ),
+                                ],
                               ),
-                            )
-                            .toList(),
+                            ),
+                          );
+                        },
                       ),
           ),
         ],

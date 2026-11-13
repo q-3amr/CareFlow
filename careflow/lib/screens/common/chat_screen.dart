@@ -3,11 +3,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/database_service.dart';
 import '../../services/message.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_empty_state.dart';
 
 class ChatScreen extends StatefulWidget {
-  final String receiverId; // معرف المستخدم المستقبِل للرسائل
-  final String receiverName; // اسم المستخدم المستقبِل لعرضه في شريط العنوان
+  final String receiverId;
+  final String receiverName;
 
   const ChatScreen({
     super.key,
@@ -20,283 +23,311 @@ class ChatScreen extends StatefulWidget {
 }
 
 class _ChatScreenState extends State<ChatScreen> {
+  final _db = DatabaseService();
+  final TextEditingController _messageController = TextEditingController();
+  final String _currentUserId = FirebaseAuth.instance.currentUser!.uid;
+  final MessageServices _messageServices = MessageServices();
+
   @override
   void initState() {
     super.initState();
-    _markAsRead(); // تعليم الرسائل كمقروءة عند فتح الشاشة
+    _markAsRead();
   }
 
-  // دالة لتعليم المحادثة كمقروءة في Firestore عند فتح الشاشة
+  @override
+  void dispose() {
+    _messageController.dispose();
+    super.dispose();
+  }
+
   void _markAsRead() async {
-    final chatRoomId = _chatRoomId(
-        _currentUserId, widget.receiverId); // الحصول على معرف غرفة الدردشة
+    final chatRoomId = _chatRoomId(_currentUserId, widget.receiverId);
     await _db.updateChatRoom(chatRoomId, {
-      'isRead': true, // تحديث حالة القراءة إلى "مقروء"
+      'isRead': true,
     });
   }
 
-  final _db = DatabaseService(); // كائن للتعامل مع Firestore
-  final TextEditingController _messageController =
-      TextEditingController(); // متحكم في حقل كتابة الرسالة
-  final String _currentUserId = FirebaseAuth
-      .instance.currentUser!.uid; // معرف المستخدم الحالي المسجل دخوله
-  final MessageServices _messageServices =
-      MessageServices(); // كائن لإرسال إشعارات الرسائل
-
-  // دالة لتوليد معرف فريد لغرفة الدردشة بين مستخدمَين (مرتب أبجدياً لضمان التفرد)
   String _chatRoomId(String user1, String user2) =>
       user1.compareTo(user2) > 0 ? '${user1}_$user2' : '${user2}_$user1';
 
   void _sendMessage() async {
-    if (_messageController.text.trim().isEmpty) return; // لا ترسل رسالة فارغة
+    final msg = _messageController.text.trim();
+    if (msg.isEmpty) return;
 
-    final msg = _messageController.text.trim(); // نص الرسالة بعد إزالة المسافات
-    _messageController.clear(); // مسح حقل الإدخال بعد الإرسال
+    _messageController.clear();
 
-    final chatRoomId =
-        _chatRoomId(_currentUserId, widget.receiverId); // معرف غرفة الدردشة
-    final now = Timestamp.now(); // الوقت الحالي لتسجيل وقت الرسالة
+    final chatRoomId = _chatRoomId(_currentUserId, widget.receiverId);
+    final now = Timestamp.now();
 
-    // حفظ الرسالة في مجموعة messages داخل غرفة الدردشة في Firestore
     await _db.sendMessage(chatRoomId, {
-      'senderId': _currentUserId, // معرف المرسل
-      'receiverId': widget.receiverId, // معرف المستقبِل
-      'message': msg, // نص الرسالة
-      'timestamp': now, // وقت إرسال الرسالة
+      'senderId': _currentUserId,
+      'receiverId': widget.receiverId,
+      'message': msg,
+      'timestamp': now,
     });
 
-    // تحديث بيانات غرفة الدردشة بآخر رسالة ومعلومات المشاركين
     await _db.updateChatRoom(chatRoomId, {
-      'participants': [
-        _currentUserId,
-        widget.receiverId
-      ], // قائمة المشاركين في الدردشة
-      'lastMessage': msg, // نص آخر رسالة للعرض في قائمة المحادثات
-      'lastMessageTime': now, // وقت آخر رسالة
-      'users': {
-        _currentUserId: true,
-        widget.receiverId: true
-      }, // خريطة المستخدمين لسهولة الاستعلام
-      'lastMessageSenderId': _currentUserId, // معرف مرسل آخر رسالة
-      'isRead':
-          false, // تعليم المحادثة كغير مقروءة عند إرسال رسالة جديدة//patient home
+      'participants': [_currentUserId, widget.receiverId],
+      'lastMessage': msg,
+      'lastMessageTime': now,
+      'users': {_currentUserId: true, widget.receiverId: true},
+      'lastMessageSenderId': _currentUserId,
+      'isRead': false,
     });
 
-    // جلب اسم المرسل من Firestore ثم إرسال إشعار للمستقبِل
-    final senderUser =
-        await _db.getUserById(_currentUserId); // جلب بيانات المرسل من Firestore
-    final senderName = senderUser?.name ??
-        'Someone'; // اسم المرسل، وإذا لم يُوجد يُعطى 'Someone'
+    final senderUser = await _db.getUserById(_currentUserId);
+    final senderName = senderUser?.name ?? 'Someone';
 
-    final token =
-        await _db.getToken(widget.receiverId); // جلب الـ FCM Token بالطرف الاخر
+    final token = await _db.getToken(widget.receiverId);
     if (token.isNotEmpty) {
-      // إرسال الإشعار فقط إذا كان التوكن موجوداً
       await _messageServices.sendNotificationToUser(
-          fcmToken: token, // التوكن الخاص بجهاز المستقبِل
-          title:
-              'New Message from $senderName', // عنوان الإشعار باسم المرسل الحقيقي من Firestore
-          body: msg, // نص الرسالة في جسم الإشعار
-          type: 'chat'); // نوع الإشعار لتمييزه عن أنواع الإشعارات الأخرى
+        fcmToken: token,
+        title: 'New Message from $senderName',
+        body: msg,
+        type: 'chat',
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final chatRoomId = _chatRoomId(_currentUserId,
-        widget.receiverId); // معرف غرفة الدردشة لاستخدامه في بناء الواجهة
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final chatRoomId = _chatRoomId(_currentUserId, widget.receiverId);
+
+    final initials = widget.receiverName.isNotEmpty
+        ? widget.receiverName
+            .trim()
+            .split(' ')
+            .map((n) => n.isNotEmpty ? n[0] : '')
+            .take(2)
+            .join()
+        : 'US';
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0,
-        centerTitle: true,
-        title: Text(
-          widget.receiverName, // عرض اسم المستقبِل في شريط العنوان
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis, // اختصار الاسم بـ ... إذا كان طويلاً
-          style: const TextStyle(
-            color: Colors.black,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
         leading: IconButton(
-          icon:
-              const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.black),
-          onPressed: () => Navigator.pop(context), // الرجوع للشاشة السابقة
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => Navigator.pop(context),
         ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(
-              color: Colors.grey.shade100,
-              height: 1), // خط فاصل رفيع أسفل الـ AppBar
+        title: Row(
+          children: [
+            AppAvatar(initials: initials, size: 36),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.receiverName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.section.copyWith(color: textPrimary),
+                  ),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.lock_outline_rounded,
+                        size: 11,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 3),
+                      Flexible(
+                        child: Text(
+                          'Encrypted Consultation',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
       body: Column(
         children: [
           Expanded(
             child: StreamBuilder<dynamic>(
-              stream: _db.streamMessages(
-                  chatRoomId), // الاستماع لتحديثات الرسائل في الوقت الفعلي
+              stream: _db.streamMessages(chatRoomId),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  return const Center(
-                      child: Text(
-                          'Error loading messages')); // عرض خطأ إذا فشل التحميل
+                  return AppEmptyState(
+                    icon: Icons.cloud_off_rounded,
+                    title: 'Could not load messages',
+                    message: 'Check your connection and try again.',
+                    compact: true,
+                  );
                 }
                 if (!snapshot.hasData) {
-                  return const Center(
-                      child:
-                          CircularProgressIndicator()); // مؤشر تحميل أثناء جلب الرسائل
+                  return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs =
-                    snapshot.data!.docs; // قائمة وثائق الرسائل من Firestore
+                final docs = snapshot.data!.docs;
+
+                if (docs.isEmpty) {
+                  return const AppEmptyState(
+                    icon: Icons.chat_bubble_outline_rounded,
+                    title: 'No messages yet',
+                    message: 'Send a message to start the consultation.',
+                    compact: true,
+                  );
+                }
 
                 return ListView.builder(
-                  reverse:
-                      true, // عرض الرسائل من الأحدث إلى الأقدم (آخر رسالة في الأسفل)
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 20,
-                    vertical: 20,
-                  ),
-                  itemCount: docs.length, // عدد الرسائل
+                  reverse: true,
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  itemCount: docs.length,
                   itemBuilder: (context, index) {
-                    final data = docs[index].data()
-                        as Map<String, dynamic>; // بيانات الرسالة
-                    final isMe = data['senderId'] ==
-                        _currentUserId; // تحديد إذا كانت الرسالة مرسلة من المستخدم الحالي
-                    return _buildChatBubble(
-                        data['message'], isMe); // بناء فقاعة الرسالة
+                    final data = docs[index].data() as Map<String, dynamic>;
+                    final isMe = data['senderId'] == _currentUserId;
+                    return _buildChatBubble(data, isMe, textPrimary);
                   },
                 );
               },
             ),
           ),
-          _buildInputArea(), // منطقة الإدخال وزر الإرسال
+          _buildInputArea(textPrimary),
         ],
       ),
     );
   }
 
-  // دالة لبناء فقاعة رسالة واحدة مع تنسيق مختلف للمرسِل والمستقبِل
-  Widget _buildChatBubble(String text, bool isMe) {
-    return Align(
-      alignment: isMe
-          ? Alignment.centerRight
-          : Alignment.centerLeft, // محاذاة الفقاعة يمين للمرسل ويسار للمستقبِل
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-        decoration: BoxDecoration(
-          color:
-              isMe ? kPrimaryBlue : Colors.white, // أزرق للمرسل وأبيض للمستقبِل
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(isMe
-                ? 20
-                : 0), // الزاوية السفلية اليسرى مستديرة للمرسل ومربعة للمستقبِل
-            bottomRight: Radius.circular(isMe
-                ? 0
-                : 20), // الزاوية السفلية اليمنى مربعة للمرسل ومستديرة للمستقبِل
+  Widget _buildChatBubble(
+      Map<String, dynamic> data, bool isMe, Color textPrimary) {
+    final text = data['message'] ?? '';
+    final timestamp = data['timestamp'];
+    String timeStr = '';
+    if (timestamp is Timestamp) {
+      final dt = timestamp.toDate();
+      final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+      final m = dt.minute.toString().padLeft(2, '0');
+      final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+      timeStr = '$h:$m $ampm';
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(
+        top: AppSpacing.xs,
+        bottom: AppSpacing.xs,
+        left: isMe ? AppSpacing.xxxl : 0,
+        right: isMe ? 0 : AppSpacing.xxxl,
+      ),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
           ),
-          border: isMe
-              ? null
-              : Border.all(
-                  color: Colors.grey.shade200), // حد رمادي فقط لفقاعة المستقبِل
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
+          decoration: BoxDecoration(
+            color: isMe
+                ? AppColors.primary
+                : (Theme.of(context).brightness == Brightness.dark
+                    ? AppColors.cardDark
+                    : AppColors.cardLight),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(AppRadius.md),
+              topRight: const Radius.circular(AppRadius.md),
+              bottomLeft: Radius.circular(isMe ? AppRadius.md : AppRadius.sm),
+              bottomRight: Radius.circular(isMe ? AppRadius.sm : AppRadius.md),
+            ),
+            border: Border.all(
+              color: isMe
+                  ? AppColors.primary
+                  : (Theme.of(context).brightness == Brightness.dark
+                      ? AppColors.borderDark
+                      : AppColors.borderLight),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment:
+                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              Text(
+                text,
+                style: AppTypography.body.copyWith(
+                  color: isMe ? Colors.white : textPrimary,
+                ),
+              ),
+              if (timeStr.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  timeStr,
+                  style: AppTypography.caption.copyWith(
+                    fontSize: 10,
+                    color: isMe
+                        ? Colors.white.withValues(alpha: 0.8)
+                        : (Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInputArea(Color textPrimary) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _messageController,
+                textInputAction: TextInputAction.send,
+                onSubmitted: (_) => _sendMessage(),
+                minLines: 1,
+                maxLines: 3,
+                style: AppTypography.body.copyWith(color: textPrimary),
+                decoration: const InputDecoration(
+                  hintText: 'Type your message...',
+                  fillColor: AppColors.surfaceSunken,
+                  contentPadding: EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.md,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            IconButton.filled(
+              tooltip: 'Send message',
+              onPressed: _sendMessage,
+              icon: const Icon(Icons.send_rounded, size: AppIconSize.md),
+              style: IconButton.styleFrom(
+                minimumSize: const Size(
+                  AppMetrics.minTarget,
+                  AppMetrics.minTarget,
+                ),
+                shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+              ),
             ),
           ],
         ),
-        child: Text(
-          text,
-          style: TextStyle(
-            color: isMe
-                ? Colors.white
-                : Colors.black87, // أبيض للمرسل وأسود للمستقبِل
-            fontSize: 16,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  // دالة لبناء منطقة الإدخال في أسفل الشاشة مع زر الإرسال
-  Widget _buildInputArea() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.grey.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -5), // الظل للأعلى لإعطاء تأثير الارتفاع
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius:
-                    BorderRadius.circular(30), // حواف دائرية لحقل الإدخال
-                border: Border.all(color: Colors.grey.shade200),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.grey.withValues(alpha: 0.1),
-                    blurRadius: 10,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: TextField(
-                controller: _messageController, // ربط الحقل بمتحكم النص
-                decoration: const InputDecoration(
-                  hintText: 'Write a message...', // نص توضيحي داخل الحقل
-                  border: InputBorder.none, // إزالة الإطار الافتراضي للحقل
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 15),
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: kPrimaryBlue.withValues(
-                      alpha: 0.4), // ظل أزرق حول زر الإرسال
-                  blurRadius: 15,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: CircleAvatar(
-              radius: 26, // حجم الدائرة لزر الإرسال
-              backgroundColor: kPrimaryBlue,
-              child: IconButton(
-                icon: const Icon(
-                  Icons.send_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-                onPressed: _sendMessage, // استدعاء دالة الإرسال عند الضغط
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

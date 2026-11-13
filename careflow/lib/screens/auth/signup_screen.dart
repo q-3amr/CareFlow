@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../services/auth_service.dart';
+import '../../utils/app_tokens.dart';
 import '../../utils/constants.dart';
+import '../../widgets/careflow_logo.dart';
+import '../../widgets/app_card.dart';
 import 'login_screen.dart';
 import '../doctors/doctor_map_screen.dart';
 
@@ -30,6 +33,16 @@ class _SignupScreenState extends State<SignupScreen> {
   double? _selectedLatitude;
   double? _selectedLongitude;
 
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    confirmPassController.dispose();
+    locationController.dispose();
+    super.dispose();
+  }
+
   Future<void> _openMapPicker() async {
     final LatLng? pickedLocation = await Navigator.push(
       context,
@@ -40,28 +53,35 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() {
         _selectedLatitude = pickedLocation.latitude;
         _selectedLongitude = pickedLocation.longitude;
-
-        locationController.text = '📍 Location selected successfully';
+        locationController.text = 'Location confirmed on map';
       });
     }
   }
 
   void handleSignup() async {
-    if (passwordController.text != confirmPassController.text) {
-      _showError('Passwords do not match!');
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final confirm = confirmPassController.text.trim();
+
+    if (name.isEmpty || email.isEmpty || password.isEmpty || confirm.isEmpty) {
+      _showError('Please fill in all required fields');
       return;
     }
-    if (emailController.text.trim().isEmpty ||
-        passwordController.text.trim().isEmpty ||
-        nameController.text.trim().isEmpty) {
-      _showError('Please fill all required fields!');
+
+    if (password != confirm) {
+      _showError('Passwords do not match');
       return;
     }
+
+    if (password.length < 6) {
+      _showError('Password must be at least 6 characters');
+      return;
+    }
+
     if (isDoctor) {
-      if (selectedSpecialty == null ||
-          locationController.text.trim().isEmpty ||
-          _selectedLatitude == null) {
-        _showError('Please fill all doctor fields and pick a location!');
+      if (selectedSpecialty == null || _selectedLatitude == null) {
+        _showError('Select your medical specialty and clinic location');
         return;
       }
     }
@@ -70,9 +90,9 @@ class _SignupScreenState extends State<SignupScreen> {
 
     try {
       await _authService.signUp(
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-        name: nameController.text.trim(),
+        email: email,
+        password: password,
+        name: name,
         role: isDoctor ? 'doctor' : 'patient',
         specialty: isDoctor ? selectedSpecialty : null,
         location: isDoctor ? locationController.text.trim() : null,
@@ -86,16 +106,17 @@ class _SignupScreenState extends State<SignupScreen> {
       setState(() => isLoading = false);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Account created successfully! Please Login with your new account.',
+            isDoctor
+                ? 'Doctor account submitted for approval. Please sign in.'
+                : 'Account created successfully! Please sign in.',
           ),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 4),
+          backgroundColor: AppColors.success,
+          behavior: SnackBarBehavior.floating,
         ),
       );
 
-      if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -109,304 +130,402 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    const Color labelColor = Color(0xFF374151);
-    const Color borderColor = Color(0xFFD1D5DB);
-
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Text(
-                  'Sign up',
-                  style: TextStyle(
-                    fontSize: 36,
-                    fontWeight: FontWeight.w900,
-                    color: kPrimaryBlue,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  'Create your new account',
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 30),
-                _buildField(
-                  label: 'Full Name',
-                  controller: nameController,
-                  hint: 'Enter your full name',
-                  icon: Icons.person_outline,
-                  borderColor: borderColor,
-                  labelColor: labelColor,
-                ),
-                const SizedBox(height: 20),
-                _buildField(
-                  label: 'Email Address',
-                  controller: emailController,
-                  hint: 'Enter your email',
-                  icon: Icons.email_outlined,
-                  borderColor: borderColor,
-                  labelColor: labelColor,
-                ),
-                const SizedBox(height: 20),
-                _buildField(
-                  label: 'Password',
-                  controller: passwordController,
-                  hint: 'Create password',
-                  icon: Icons.lock_outline,
-                  borderColor: borderColor,
-                  labelColor: labelColor,
-                  isPass: true,
-                  isObscure: isObscurePass,
-                  onEyeTap: () =>
-                      setState(() => isObscurePass = !isObscurePass),
-                ),
-                const SizedBox(height: 20),
-                _buildField(
-                  label: 'Confirm Password',
-                  controller: confirmPassController,
-                  hint: 'Re-enter password',
-                  icon: Icons.lock_outline,
-                  borderColor: borderColor,
-                  labelColor: labelColor,
-                  isPass: true,
-                  isObscure: isObscureConfirm,
-                  onEyeTap: () =>
-                      setState(() => isObscureConfirm = !isObscureConfirm),
-                ),
-                const SizedBox(height: 25),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 15,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isDoctor
-                        ? kPrimaryBlue.withValues(alpha: 0.1)
-                        : Colors.grey.shade50,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: isDoctor ? kPrimaryBlue : borderColor,
-                      width: 2,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.medical_services,
-                        color: isDoctor ? kPrimaryBlue : Colors.grey,
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Register as a Doctor',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: isDoctor ? kPrimaryBlue : labelColor,
-                        ),
-                      ),
-                      const Spacer(),
-                      Switch(
-                        value: isDoctor,
-                        thumbColor: WidgetStateProperty.resolveWith<Color>(
-                          (states) => states.contains(WidgetState.selected)
-                              ? kPrimaryBlue
-                              : Colors.white,
-                        ),
-                        onChanged: (val) => setState(() => isDoctor = val),
-                      ),
-                    ],
-                  ),
-                ),
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 500),
-                  reverseDuration: const Duration(milliseconds: 300),
-                  switchInCurve: Curves.easeInOut,
-                  switchOutCurve: Curves.easeInOut,
-                  transitionBuilder: (child, animation) {
-                    return SizeTransition(
-                      sizeFactor: animation,
-                      axisAlignment: -1.0,
-                      child: FadeTransition(opacity: animation, child: child),
-                    );
-                  },
-                  child: isDoctor
-                      ? Column(
-                          key: const ValueKey('doctor_fields'),
-                          children: [
-                            const SizedBox(height: 20),
-                            _buildSpecialtyDropdown(
-                              labelColor: labelColor,
-                              borderColor: borderColor,
-                            ),
-                            const SizedBox(height: 20),
-                            _buildField(
-                              label: 'Clinic Location',
-                              controller: locationController,
-                              hint: 'Tap to pick location from map',
-                              icon: Icons.map_outlined,
-                              borderColor: borderColor,
-                              labelColor: labelColor,
-                              readOnly: true,
-                              onTap: _openMapPicker,
-                            ),
-                          ],
-                        )
-                      : const SizedBox.shrink(key: ValueKey('empty')),
-                ),
-                const SizedBox(height: 30),
-                SizedBox(
-                  width: double.infinity,
-                  height: 60,
-                  child: ElevatedButton(
-                    onPressed: isLoading ? null : handleSignup,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kPrimaryBlue,
-                      elevation: 2,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    child: isLoading
-                        ? const CircularProgressIndicator(
-                            color: Colors.white,
-                          )
-                        : const Text(
-                            'Sign Up',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'Already have an account? ',
-                      style: TextStyle(
-                        color: labelColor,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const LoginScreen(),
-                        ),
-                      ),
-                      child: const Text(
-                        'Login',
-                        style: TextStyle(
-                          color: kPrimaryBlue,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          decoration: TextDecoration.underline,
-                          decorationColor: kPrimaryBlue,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.destructive,
+        behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
-  Widget _buildSpecialtyDropdown({
-    required Color labelColor,
-    required Color borderColor,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Specialty',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.grey.shade50,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: selectedSpecialty != null ? kPrimaryBlue : borderColor,
-              width: selectedSpecialty != null ? 2.5 : 2.0,
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? AppColors.backgroundDark : AppColors.backgroundLight;
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+
+    return Scaffold(
+      backgroundColor: bg,
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top Navigation & Brand Header
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: AppSpacing.sm,
+              ),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back to sign in',
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(builder: (context) => const LoginScreen()),
+                      );
+                    },
+                  ),
+                  const CareFlowLogo(size: 32),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      'Create account',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.section.copyWith(color: textPrimary),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: selectedSpecialty,
-              hint: Padding(
-                padding: const EdgeInsets.only(left: 18),
-                child: Text(
-                  'Select your specialty',
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: 14,
+
+            Divider(height: 1, thickness: 1, color: Theme.of(context).dividerColor),
+
+            // Form Container
+            Expanded(
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 440),
+                    child: AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Create Account',
+                            style: AppTypography.display.copyWith(
+                              color: textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Select your role and enter credentials',
+                            style: AppTypography.body.copyWith(
+                              color: textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+
+                          // Segmented Role Selector (Patient vs Doctor)
+                          Container(
+                            padding: const EdgeInsets.all(AppSpacing.xs),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? AppColors.backgroundDark
+                                  : AppColors.surfaceSunken,
+                              borderRadius: AppRadius.medium,
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.borderDark
+                                    : AppColors.borderLight,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _RoleOption(
+                                    label: 'Patient',
+                                    icon: Icons.person_rounded,
+                                    selected: !isDoctor,
+                                    isDark: isDark,
+                                    onTap: () =>
+                                        setState(() => isDoctor = false),
+                                  ),
+                                ),
+                                const SizedBox(width: AppSpacing.xs),
+                                Expanded(
+                                  child: _RoleOption(
+                                    label: 'Doctor',
+                                    icon: Icons.medical_services_rounded,
+                                    selected: isDoctor,
+                                    isDark: isDark,
+                                    onTap: () =>
+                                        setState(() => isDoctor = true),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+
+                          // Full Name
+                          _buildField(
+                            label: 'Full Name',
+                            controller: nameController,
+                            hint: isDoctor
+                                ? 'e.g. Dr. Sarah Jenkins'
+                                : 'e.g. Alex Morgan',
+                            icon: Icons.person_outline_rounded,
+                            textPrimary: textPrimary,
+                            textSecondary: textSecondary,
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Email
+                          _buildField(
+                            label: 'Email Address',
+                            controller: emailController,
+                            hint: 'name@example.com',
+                            icon: Icons.mail_outline_rounded,
+                            keyboardType: TextInputType.emailAddress,
+                            textPrimary: textPrimary,
+                            textSecondary: textSecondary,
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Password
+                          _buildField(
+                            label: 'Password',
+                            controller: passwordController,
+                            hint: 'Min 6 characters',
+                            icon: Icons.lock_outline_rounded,
+                            obscureText: isObscurePass,
+                            textPrimary: textPrimary,
+                            textSecondary: textSecondary,
+                            textInputAction: TextInputAction.next,
+                            suffixIcon: IconButton(
+                              tooltip: isObscurePass
+                                  ? 'Show password'
+                                  : 'Hide password',
+                              icon: Icon(
+                                isObscurePass
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () => setState(
+                                  () => isObscurePass = !isObscurePass),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Confirm Password
+                          _buildField(
+                            label: 'Confirm Password',
+                            controller: confirmPassController,
+                            hint: 'Re-enter password',
+                            icon: Icons.lock_outline_rounded,
+                            obscureText: isObscureConfirm,
+                            textPrimary: textPrimary,
+                            textSecondary: textSecondary,
+                            textInputAction: TextInputAction.done,
+                            suffixIcon: IconButton(
+                              tooltip: isObscureConfirm
+                                  ? 'Show password'
+                                  : 'Hide password',
+                              icon: Icon(
+                                isObscureConfirm
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                              onPressed: () => setState(() =>
+                                  isObscureConfirm = !isObscureConfirm),
+                            ),
+                          ),
+
+                          // Doctor-Specific Fields
+                          if (isDoctor) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Medical Specialty',
+                              style: AppTypography.label.copyWith(
+                                color: textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            Container(
+                              constraints: const BoxConstraints(
+                                minHeight: AppMetrics.controlHeight,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: AppSpacing.md,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? AppColors.cardDark
+                                    : AppColors.cardLight,
+                                borderRadius: AppRadius.medium,
+                                border: Border.all(
+                                  color: isDark
+                                      ? AppColors.borderDark
+                                      : AppColors.borderLight,
+                                ),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedSpecialty,
+                                  isExpanded: true,
+                                  isDense: true,
+                                  dropdownColor: isDark
+                                      ? AppColors.cardDark
+                                      : AppColors.cardLight,
+                                  icon: const Icon(
+                                    Icons.keyboard_arrow_down_rounded,
+                                  ),
+                                  hint: Text(
+                                    'Select specialty',
+                                    style: AppTypography.body.copyWith(
+                                      color: textSecondary,
+                                    ),
+                                  ),
+                                  items: kSpecialties.map((s) {
+                                    return DropdownMenuItem(
+                                      value: s,
+                                      child: Text(
+                                        s,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: AppTypography.body.copyWith(
+                                          color: textPrimary,
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) => setState(
+                                      () => selectedSpecialty = val),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              'Clinic Location',
+                              style: AppTypography.label.copyWith(
+                                color: textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            InkWell(
+                              onTap: _openMapPicker,
+                              borderRadius: AppRadius.medium,
+                              child: Container(
+                                constraints: const BoxConstraints(
+                                  minHeight: AppMetrics.controlHeight,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.md,
+                                  vertical: AppSpacing.sm,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppColors.cardDark
+                                      : AppColors.cardLight,
+                                  borderRadius: AppRadius.medium,
+                                  border: Border.all(
+                                    color: _selectedLatitude != null
+                                        ? AppColors.primary
+                                        : (isDark
+                                            ? AppColors.borderDark
+                                            : AppColors.borderLight),
+                                    width:
+                                        _selectedLatitude != null ? 1.5 : 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      _selectedLatitude != null
+                                          ? Icons.check_circle_rounded
+                                          : Icons.map_outlined,
+                                      color: _selectedLatitude != null
+                                          ? AppColors.primary
+                                          : textSecondary,
+                                      size: AppIconSize.md,
+                                    ),
+                                    const SizedBox(width: AppSpacing.sm),
+                                    Expanded(
+                                      child: Text(
+                                        _selectedLatitude != null
+                                            ? 'Clinic location confirmed'
+                                            : 'Tap to select location on map',
+                                        style: AppTypography.body.copyWith(
+                                          color: _selectedLatitude != null
+                                              ? AppColors.primary
+                                              : textSecondary,
+                                          fontWeight: _selectedLatitude != null
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(
+                                      Icons.chevron_right_rounded,
+                                      color: AppColors.primary,
+                                      size: AppIconSize.md,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: AppSpacing.xl),
+
+                          // Submit Button
+                          SizedBox(
+                            height: AppMetrics.controlHeight,
+                            child: ElevatedButton(
+                              onPressed: isLoading ? null : handleSignup,
+                              child: isLoading
+                                  ? const SizedBox(
+                                      width: AppIconSize.md,
+                                      height: AppIconSize.md,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : Text(
+                                      isDoctor
+                                          ? 'Register as Doctor'
+                                          : 'Create Patient Account',
+                                      textAlign: TextAlign.center,
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+
+                          // Login Link
+                          Wrap(
+                            alignment: WrapAlignment.center,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: AppSpacing.xs,
+                            children: [
+                              Text(
+                                'Already have an account?',
+                                style: AppTypography.body.copyWith(
+                                  color: textSecondary,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                        builder: (context) =>
+                                            const LoginScreen()),
+                                  );
+                                },
+                                child: const Text('Sign In'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
-              isExpanded: true,
-              icon: Padding(
-                padding: const EdgeInsets.only(right: 18),
-                child: Icon(
-                  Icons.keyboard_arrow_down_rounded,
-                  color: Colors.grey.shade600,
-                  size: 28,
-                ),
-              ),
-              borderRadius: BorderRadius.circular(16),
-              dropdownColor: Colors.white,
-              elevation: 8,
-              style: const TextStyle(
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-                color: Colors.black87,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
-              items: kSpecialties.map((String specialty) {
-                return DropdownMenuItem<String>(
-                  value: specialty,
-                  child: Text(specialty),
-                );
-              }).toList(),
-              onChanged: (String? newValue) =>
-                  setState(() => selectedSpecialty = newValue),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
@@ -415,68 +534,98 @@ class _SignupScreenState extends State<SignupScreen> {
     required TextEditingController controller,
     required String hint,
     required IconData icon,
-    required Color borderColor,
-    required Color labelColor,
-    bool isPass = false,
-    bool isObscure = false,
-    VoidCallback? onEyeTap,
-    bool readOnly = false,
-    VoidCallback? onTap,
+    required Color textPrimary,
+    required Color textSecondary,
+    bool obscureText = false,
+    TextInputType? keyboardType,
+    TextInputAction textInputAction = TextInputAction.next,
+    Widget? suffixIcon,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
+          style: AppTypography.label.copyWith(color: textPrimary),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: AppSpacing.sm),
         TextField(
           controller: controller,
-          obscureText: isPass ? isObscure : false,
-          readOnly: readOnly,
-          onTap: onTap,
-          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          textInputAction: textInputAction,
+          style: AppTypography.body.copyWith(color: textPrimary),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: TextStyle(
-              color: Colors.grey.shade500,
-              fontSize: 14,
-              fontWeight: FontWeight.normal,
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 18,
-              vertical: 18,
-            ),
-            filled: true,
-            fillColor: Colors.grey.shade50,
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: BorderSide(color: borderColor, width: 2.0),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(16),
-              borderSide: const BorderSide(color: kPrimaryBlue, width: 2.5),
-            ),
-            suffixIcon: isPass
-                ? IconButton(
-                    icon: Icon(
-                      isObscure
-                          ? Icons.visibility_outlined
-                          : Icons.visibility_off_outlined,
-                      color: Colors.grey.shade600,
-                      size: 26,
-                    ),
-                    onPressed: onEyeTap,
-                  )
-                : Icon(icon, color: Colors.grey.shade400, size: 24),
+            prefixIcon: Icon(icon),
+            suffixIcon: suffixIcon,
           ),
         ),
       ],
+    );
+  }
+}
+
+class _RoleOption extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _RoleOption({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textSecondary =
+        isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: AppRadius.small,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+          decoration: BoxDecoration(
+            color: selected
+                ? (isDark ? AppColors.cardTintDark : AppColors.cardLight)
+                : Colors.transparent,
+            borderRadius: AppRadius.small,
+            boxShadow: selected && !isDark ? AppShadows.soft : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: AppIconSize.sm,
+                color: selected ? AppColors.primary : textSecondary,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.label.copyWith(
+                    color: selected ? AppColors.primary : textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

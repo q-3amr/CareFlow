@@ -1,138 +1,178 @@
-﻿
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'models/user.dart';
 import 'services/auth_service.dart';
 import 'services/database_service.dart';
+import 'utils/app_colors.dart';
+import 'widgets/app_empty_state.dart';
 import 'screens/guest/guest_home_screen.dart';
 import 'screens/patient/patient_home_screen.dart';
 import 'screens/doctors/doctor_home_screen.dart';
 import 'screens/admin/admin_home_screen.dart';
 
-class AuthWrapper extends StatelessWidget {
+class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
+
+  @override
+  State<AuthWrapper> createState() => _AuthWrapperState();
+}
+
+class _AuthWrapperState extends State<AuthWrapper> {
+  String? _roleUid;
+  Future<UserModel?>? _roleFuture;
+  String? _tokenUid;
+
+  Future<UserModel?> _roleFor(String uid) {
+    if (_roleUid != uid || _roleFuture == null) {
+      _roleUid = uid;
+      _roleFuture = DatabaseService().getUserById(uid);
+    }
+    return _roleFuture!;
+  }
 
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
       stream: AuthService().authStateChanges,
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            body: Center(child: CircularProgressIndicator()),
-          );
+        final User? user = snapshot.data;
+
+        // A cold start can emit null before the persisted session is restored.
+        // Showing the guest home there makes the app look like it opened twice.
+        if (user == null) {
+          final stillRestoring =
+              snapshot.connectionState == ConnectionState.waiting ||
+                  FirebaseAuth.instance.currentUser != null;
+          if (stillRestoring) return const _AuthLoadingScreen();
+          return const GuestHomeScreen();
         }
 
-        if (snapshot.hasData && snapshot.data != null) {
-          final User user = snapshot.data!;
+        if (_tokenUid != user.uid) {
+          _tokenUid = user.uid;
+          DatabaseService().updateNotificationToken(user.uid);
+        }
 
-DatabaseService().updateNotificationToken(user.uid);
+        return FutureBuilder<UserModel?>(
+          future: _roleFor(user.uid),
+          builder: (context, roleSnapshot) {
+            if (roleSnapshot.connectionState == ConnectionState.waiting) {
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
+            }
 
-          return FutureBuilder(
-            future: DatabaseService().getUserById(user.uid),
-            builder: (context, roleSnapshot) {
-              if (roleSnapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
-                );
-              }
+            if (roleSnapshot.hasError) {
+              return Scaffold(
+                body: SafeArea(
+                  child: AppEmptyState(
+                    icon: Icons.error_outline_rounded,
+                    title: 'Unable to load profile',
+                    message: roleSnapshot.error.toString(),
+                    iconColor: AppColors.destructive,
+                    iconBackgroundColor: AppColors.destructiveLight,
+                    action: ElevatedButton(
+                      onPressed: () => AuthService().signOut(),
+                      child: const Text('Sign Out'),
+                    ),
+                  ),
+                ),
+              );
+            }
 
-              if (roleSnapshot.hasError) {
+            final userModel = roleSnapshot.data;
+            debugPrint(
+              'AuthWrapper: uid=${user.uid} role=${userModel?.role ?? 'missing'}',
+            );
+            if (userModel != null &&
+                userModel.role.trim().toLowerCase() == 'admin') {
+              return const AdminHomeScreen();
+            }
+            if (userModel != null && userModel.isDoctor) {
+              if (userModel.isVerified != true) {
+                final isDark =
+                    Theme.of(context).brightness == Brightness.dark;
                 return Scaffold(
-                  body: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.error_outline,
-                          size: 60,
-                          color: Colors.red,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Error loading user data',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          roleSnapshot.error.toString(),
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[500],
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 24),
-                        ElevatedButton(
-                          onPressed: () => AuthService().signOut(),
-                          child: const Text('Sign Out'),
-                        ),
-                      ],
+                  body: SafeArea(
+                    child: AppEmptyState(
+                      icon: Icons.hourglass_top_rounded,
+                      title: 'Account Under Review',
+                      message:
+                          'Your doctor credentials are being verified by the '
+                          'CareFlow administration. You will gain access once '
+                          'approved.',
+                      iconColor: isDark
+                          ? const Color(0xFFFCD34D)
+                          : AppColors.warningText,
+                      iconBackgroundColor: isDark
+                          ? AppColors.warningSoftDark
+                          : AppColors.warningLight,
+                      action: OutlinedButton(
+                        onPressed: () => AuthService().signOut(),
+                        child: const Text('Sign Out'),
+                      ),
                     ),
                   ),
                 );
               }
+              return const DoctorHomeScreen();
+            }
 
-              final userModel = roleSnapshot.data;
-              if (userModel != null && userModel.role.trim().toLowerCase() == 'admin') {
-                return const AdminHomeScreen();
-              }
-              if (userModel != null && userModel.isDoctor) {
-
-if (userModel.isVerified != true) {
-                  return Scaffold(
-                    body: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(
-                              Icons.hourglass_empty_rounded,
-                              size: 80,
-                              color: Colors.orange,
-                            ),
-                            const SizedBox(height: 20),
-                            const Text(
-                              'Account Pending Approval',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'Your doctor account is under review. You will be able to log in once an administrator approves it.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(height: 32),
-                            ElevatedButton(
-                              onPressed: () => AuthService().signOut(),
-                              child: const Text('Sign Out'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }
-                return const DoctorHomeScreen();
-              }
-
+            if (userModel != null && userModel.isPatient) {
               return const PatientHomeScreen();
-            },
-          );
-        }
+            }
 
-        return const GuestHomeScreen();
+            // Signed in but the profile is missing or has an unknown role.
+            // Never fall through to the patient dashboard: that hid admin
+            // routing bugs behind a patient session.
+            return _UnknownProfileScreen(
+              uid: user.uid,
+              role: userModel?.role ?? 'missing',
+            );
+          },
+        );
       },
+    );
+  }
+}
+
+class _AuthLoadingScreen extends StatelessWidget {
+  const _AuthLoadingScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(child: CircularProgressIndicator()),
+    );
+  }
+}
+
+class _UnknownProfileScreen extends StatelessWidget {
+  final String uid;
+  final String role;
+
+  const _UnknownProfileScreen({required this.uid, required this.role});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Scaffold(
+      body: SafeArea(
+        child: AppEmptyState(
+          icon: Icons.person_off_outlined,
+          title: 'Profile unavailable',
+          message: 'Signed in as $uid\nRole: $role\n\n'
+              'This account has no valid CareFlow profile. '
+              'Contact the administrator.',
+          iconColor: isDark ? const Color(0xFFFCD34D) : AppColors.warningText,
+          iconBackgroundColor:
+              isDark ? AppColors.warningSoftDark : AppColors.warningLight,
+          action: ElevatedButton(
+            onPressed: () => AuthService().signOut(),
+            child: const Text('Sign Out'),
+          ),
+        ),
+      ),
     );
   }
 }

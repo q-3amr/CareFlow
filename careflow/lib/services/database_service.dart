@@ -191,55 +191,72 @@ class DatabaseService {
         .get();
   }
 
-  Future<String?> bookAppointmentSafely(AppointmentModel appointment) async { // فنكشن لحجز الموعد بطريقة آمنة تمنع الحجز المزدوج (شخصين يحجزون نفس الوقت)
-    // نصنع مفتاح فريد لهذا الموعد مكوّن من رقم الطبيب والتوقيت
+  /// الحجز الذري: نحجز الوقت وننشئ الموعد في نفس الـ transaction، لذلك
+  /// لو حاول شخصان الحجز في نفس اللحظة واحد فقط سينجح.
+  /// يرجع null عند النجاح، أو رسالة خطأ إذا كان الوقت محجوزاً.
+  Future<String?> _bookSlotTransaction({
+    required String doctorId,
+    required String doctorName,
+    required String patientId,
+    required String patientName,
+    required DateTime appointmentDateTime,
+  }) async {
+    // مفتاح فريد لهذا الموعد مكوّن من رقم الطبيب والتوقيت
     final String appointmentKey =
-        "${appointment.doctorId}_${appointment.appointmentDateTime.millisecondsSinceEpoch}";
+        "${doctorId}_${appointmentDateTime.millisecondsSinceEpoch}";
 
     // مرجع لوثيقة في جدول "المواعيد المحجوزة" (جدول مخصص فقط لمنع التضارب)
     final txRef = _db.collection('booked_slots').doc(appointmentKey);
 
     try {
-      // نستخدم "Transaction" (عملية موحدة): وهي تقنية تضمن أنه إذا حاول شخصان الحجز في نفس اللحظة بالثانية، واحد فقط سينجح!
       final isBooked = await _db.runTransaction<bool>((transaction) async {
-        final snapshot = await transaction.get(txRef); // نقرأ الموعد من قاعدة البيانات لنتأكد أنه ليس محجوزاً مسبقاً
+        final snapshot = await transaction.get(txRef);
 
-        if (snapshot.exists) { // إذا وجدنا المستند موجوداً، هذا يعني أن شخصاً آخر سبقنا للتو وحجز هذا الوقت
-          return true; // true تعني: "نعم، الوقت أصبح محجوزاً"
+        if (snapshot.exists) {
+          return true; // الوقت محجوز مسبقاً
         }
 
-        // إذا وصلنا لهنا، فالموعد متاح! نقوم بحجزه فوراً في جدول "booked_slots" لكي لا يأخذه غيرنا
+        // نحجز الوقت فوراً في جدول "booked_slots" لكي لا يأخذه غيرنا
         transaction.set(txRef, {
-          'bookedBy': appointment.patientId, // من حجز الموعد
-          'timestamp': FieldValue.serverTimestamp(), // متى تم الحجز
+          'bookedBy': patientId,
+          'doctorId': doctorId,
+          'timestamp': FieldValue.serverTimestamp(),
         });
 
-        // بعد أن حجزنا الوقت بنجاح (وضعنا يدنا عليه)، نقوم بإنشاء الموعد الفعلي بكل تفاصيله في جدول "المواعيد" الأساسي
+        // وننشئ الموعد الفعلي في نفس العملية الذرية
         final newApptDoc = _db.collection('appointments').doc();
         transaction.set(newApptDoc, {
           'id': newApptDoc.id,
-          'doctor_id': appointment.doctorId,
-          'doctor_name': appointment.doctorName,
-          'patient_id': appointment.patientId,
-          'patient_name': appointment.patientName,
-          'appointmentDateTime':
-              Timestamp.fromDate(appointment.appointmentDateTime),
-          'status': 'pending', // حالة الموعد معلقة بانتظار رد الطبيب
+          'doctor_id': doctorId,
+          'doctor_name': doctorName,
+          'patient_id': patientId,
+          'patient_name': patientName,
+          'appointmentDateTime': Timestamp.fromDate(appointmentDateTime),
+          'status': 'pending',
           'hasFeedback': false,
           'isReviewSeen': false,
         });
 
-        return false; // false تعني: "الوقت لم يكن محجوزاً من قبلنا، ونجحنا نحن في حجزه"
+        return false;
       });
 
       if (isBooked) {
-        return 'Sorry, this slot was just booked by someone else!'; // رسالة تظهر للمستخدم إذا فشل الحجز بسبب التضارب
-      } else {
-        return null; // الحجز نجح (لا توجد أخطاء)
+        return 'Sorry, this slot was just booked by someone else!';
       }
+      return null;
     } catch (e) {
-      return 'Transaction failed: $e'; // حدث خطأ غير متوقع في الاتصال أو قاعدة البيانات
+      return 'Transaction failed: $e';
     }
+  }
+
+  Future<String?> bookAppointmentSafely(AppointmentModel appointment) {
+    return _bookSlotTransaction(
+      doctorId: appointment.doctorId,
+      doctorName: appointment.doctorName,
+      patientId: appointment.patientId,
+      patientName: appointment.patientName,
+      appointmentDateTime: appointment.appointmentDateTime,
+    );
   }
 
   Future<void> updateAppointmentStatus( // فنكشن لتحديث حالة الموعد (مقبول، مرفوض، ملغى، مكتمل)
@@ -277,7 +294,24 @@ class DatabaseService {
   }
 
   Future<void> deleteAppointment(String docId) async {
-    await _db.collection('appointments').doc(docId).delete();
+    final apptRef = _db.collection('appointments').doc(docId);
+
+    // نحذف القفل مع الموعد في نفس الـ transaction، وإلا بقي الوقت محجوزاً
+    // للأبد ولا يمكن حجزه مرة أخرى.
+    await _db.runTransaction((transaction) async {
+      final snap = await transaction.get(apptRef);
+      if (!snap.exists) return;
+
+      final data = snap.data() ?? {};
+      final doctorId = data['doctor_id'];
+      final rawDate = data['appointmentDateTime'];
+      if (doctorId is String && rawDate is Timestamp) {
+        final slotKey = "${doctorId}_${rawDate.millisecondsSinceEpoch}";
+        transaction.delete(_db.collection('booked_slots').doc(slotKey));
+      }
+
+      transaction.delete(apptRef);
+    });
   }
 
   Future<DocumentSnapshot> getAvailability(String doctorId, String dateKey) {
@@ -596,51 +630,23 @@ class DatabaseService {
             parsedDate.year, parsedDate.month, parsedDate.day, hour, minute); // بناء كائن وقت كامل يجمع التاريخ والساعة
       } catch (_) {}
 
-      // التحقق من عدم وجود تضارب (شخص آخر حجز نفس الوقت)
-      QuerySnapshot checkConflict = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctor_id', isEqualTo: doctorId)
-          .where('status', whereIn: ['pending', 'accepted']).get();
+      // الحجز يمر عبر نفس الـ transaction وقفل booked_slots المستخدم في
+      // الواجهة، حتى لا يستطيع مسار الذكاء الاصطناعي تجاوز منع الحجز المزدوج.
+      final String? bookingError = await _bookSlotTransaction(
+        doctorId: doctorId,
+        doctorName: doctorName,
+        patientId: patientId,
+        patientName: patientName,
+        appointmentDateTime: appointmentDateTime,
+      );
 
-      // ابحث في المواعيد المحجوزة إذا كان هناك موعد بنفس التاريخ والساعة والدقيقة
-      final bool alreadyBooked = checkConflict.docs.any((doc) {
-        final d = doc.data() as Map<String, dynamic>;
-        final rawDate = d['appointmentDateTime'];
-        if (rawDate == null) return false;
-        final DateTime existing = (rawDate as Timestamp).toDate();
-        return existing.year == appointmentDateTime.year &&
-            existing.month == appointmentDateTime.month &&
-            existing.day == appointmentDateTime.day &&
-            existing.hour == appointmentDateTime.hour &&
-            existing.minute == appointmentDateTime.minute; // مطابقة كاملة للسنة والشهر واليوم والساعة والدقيقة
-      });
-
-      if (alreadyBooked) { // إذا كان الوقت محجوزاً، أخبر الذكاء الاصطناعي ليخبر المريض باختيار وقت آخر
+      if (bookingError != null) {
         return jsonEncode({
           "success": false,
           "error":
               "CRITICAL: This exact time slot ($time) was just booked by someone else! Tell the user to choose another time from the available slots."
         });
       }
-
-      // إنشاء رقم تعريفي فريد للموعد باستخدام رقم الطبيب والتوقيت بالميليثانية لضمان عدم التكرار
-      final String slotId =
-          "appt_${doctorId}_${appointmentDateTime.millisecondsSinceEpoch}";
-      // أضف الموعد إلى قاعدة البيانات
-      await FirebaseFirestore.instance
-          .collection('appointments')
-          .doc(slotId) // استخدام الرقم التعريفي كاسم للوثيقة بدلاً من توليده عشوائياً
-          .set({
-        'doctor_id': doctorId, // رقم الطبيب
-        'doctor_name': doctorName, // اسم الطبيب
-        'patient_id': patientId, // رقم المريض
-        'patient_name': patientName, // اسم المريض
-        'appointmentDateTime': Timestamp.fromDate(appointmentDateTime), // التاريخ والوقت كاملين
-        'status': 'pending', // حالة الموعد افتراضياً هي معلقة حتى يقبل الطبيب
-        'hasFeedback': false, // لم يترك المريض تقييماً بعد
-        'isReviewSeen': false, // لم يرى الطبيب التقييم بعد
-        'created_at': FieldValue.serverTimestamp(), // توقيت إنشاء الموعد يؤخذه من خادم فايربيس مباشرة
-      });
 
       // إرسال إشعار للطبيب بأن هناك طلب حجز جديد
       try {

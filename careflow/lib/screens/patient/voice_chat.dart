@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/chat_provider.dart';
 import '../../models/chat_message.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 
 class VoiceChat extends StatefulWidget {
   const VoiceChat({super.key});
@@ -12,14 +13,12 @@ class VoiceChat extends StatefulWidget {
 }
 
 class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
-  // المتغيرات للتحكم في التمرير، النص، والرسوم المتحركة
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _textController = TextEditingController();
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
   late ChatProvider _chatProvider;
 
-// تهيئة الرسوم المتحركة والاستماع لتغييرات المزود بعد بناء الواجهة
   @override
   void initState() {
     super.initState();
@@ -27,96 +26,86 @@ class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 850),
     )..repeat(reverse: true);
-    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.22).animate(
+    _pulseAnimation = Tween<double>(begin: 1.0, end: 1.25).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _chatProvider = context.read<ChatProvider>();
-      _chatProvider.addListener(_onProviderChange);
+      _chatProvider = Provider.of<ChatProvider>(context, listen: false);
       _chatProvider.initialize();
-      _scrollToBottom();
+      _chatProvider.addListener(_onChatProviderChanged);
     });
   }
 
-  // تنظيف الموارد وإلغاء الاستماع عند التخلص من الواجهة
+  void _onChatProviderChanged() {
+    _scrollToBottom();
+  }
 
   @override
   void dispose() {
-    _chatProvider.removeListener(_onProviderChange);
     _pulseController.dispose();
     _scrollController.dispose();
     _textController.dispose();
+    _chatProvider.removeListener(_onChatProviderChanged);
     super.dispose();
   }
 
-  // التعامل مع تغييرات المزود لعرض رسائل الخطأ أو تحديث الواجهة
-
-  void _onProviderChange() {
-    if (_chatProvider.hasConnectionError && mounted) {
-      _showConnectionError();
-    }
-  }
-
-// تمرير القائمة إلى الأسفل عند إضافة رسالة جديدة أو عند بدء/إيقاف التسجيل
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
           _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 350),
+          duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
         );
       }
     });
   }
 
-  // إرسال رسالة نصية عند الضغط على زر الإرسال أو عند الضغط على "Enter"
-
   void _sendText() {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
-    context.read<ChatProvider>().sendTextMessage(text);
+    _chatProvider.sendTextMessage(text);
     _textController.clear();
     _scrollToBottom();
   }
 
-  // عرض رسالة خطأ عند وجود مشكلة في الاتصال
-
-  void _showConnectionError() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text(
-            'Connection error, check your connection and try again!'),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Consumer<ChatProvider>(
-      // إعادة بناء الواجهة عند تغير حالة المزود
       builder: (context, chat, _) {
-        if (chat.messages.isNotEmpty)
-          _scrollToBottom(); // تمرير القائمة إلى الأسفل عند إضافة رسالة جديدة
         return Scaffold(
-          resizeToAvoidBottomInset: true,
-          backgroundColor: const Color(0xFFF5F7FA),
           body: SafeArea(
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                _buildAppBar(chat), // شريط العنوان مع حالة التسجيل/التحدث
+                _buildAppBar(chat, isDark),
+                if (chat.isTriageComplete) _buildAssessmentBanner(chat),
                 Expanded(
-                    child: _buildMessageList(
-                        chat)), // قائمة الرسائل مع مؤشرات التسجيل والكتابة
-                chat.isTriageComplete
-                    ? _buildCompletionButton(
-                        chat) // زر إكمال التقييم بناءً على حالة التقييم
-                    : _buildInputBar(
-                        chat), // شريط الإدخال أو زر إكمال التقييم بناءً على حالة التقييم
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    itemCount: chat.messages.length + (chat.isListening ? 1 : 0) + (chat.isTyping ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index < chat.messages.length) {
+                        final message = chat.messages[index];
+                        return _ChatBubble(
+                          message: message,
+                          onSpeak: () => chat.speakMessage(message),
+                          isSpeaking: chat.isSpeaking,
+                          isDark: isDark,
+                        );
+                      } else if (chat.isListening && index == chat.messages.length) {
+                        return _buildListeningIndicator(isDark);
+                      } else {
+                        return _TypingIndicator(isDark: isDark);
+                      }
+                    },
+                  ),
+                ),
+                if (!chat.isTriageComplete) _buildBottomBar(chat, isDark),
+                if (chat.isTriageComplete) _buildCompletionButton(chat),
               ],
             ),
           ),
@@ -125,142 +114,152 @@ class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildAppBar(ChatProvider chat) {
-    // شريط العنوان مع حالة التسجيل/التحدث
+  Widget _buildAppBar(ChatProvider chat, bool isDark) {
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+
+    final textSecondary =
+        isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.sm,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 10,
-            offset: Offset(0, 2),
-          ),
-        ],
+        color: Theme.of(context).cardColor,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.maybePop(context),
-            child: Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFFF0F2F5),
-              ),
-              child: Icon(
-                Icons.arrow_back_ios_new_rounded,
-                color: Color(0xFF2C2C2C),
-                size: 16,
-              ),
-            ),
+          IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back_rounded),
+            onPressed: () => Navigator.maybePop(context),
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.xs),
+
+          // AI Avatar
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: kPrimaryBlue,
+              color: isDark
+                  ? AppColors.primaryContainerDark
+                  : AppColors.primaryLight,
+              borderRadius: AppRadius.small,
             ),
-            child: Center(
-              child: Text(
-                'AI',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 18,
-                ),
-              ),
+            child: Icon(
+              Icons.psychology_rounded,
+              color: isDark ? const Color(0xFFBFDBFE) : AppColors.primary,
+              size: AppIconSize.lg,
             ),
           ),
-          SizedBox(width: 12),
+          const SizedBox(width: AppSpacing.md),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'CareFlow AI Triage',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.section.copyWith(
+                          color: textPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: const BoxDecoration(
+                        color: AppColors.success,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  chat.isListening
+                      ? 'Listening to your voice...'
+                      : chat.isTyping
+                          ? 'Analyzing symptoms...'
+                          : 'Clinical Decision Support Assistant',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: chat.isListening ? AppColors.primary : textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAssessmentBanner(ChatProvider chat) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isEmergency = chat.triageUrgency == 'red';
+    final bannerBg = isEmergency
+        ? (isDark ? AppColors.destructiveSoftDark : AppColors.destructiveLight)
+        : (isDark ? AppColors.successSoftDark : AppColors.successLight);
+    final borderColor = isEmergency
+        ? (isDark ? const Color(0xFFF97066) : AppColors.destructive)
+        : (isDark ? const Color(0xFF34D399) : AppColors.success);
+    final textColor = isEmergency
+        ? (isDark ? const Color(0xFFFECDCA) : AppColors.destructiveText)
+        : (isDark ? const Color(0xFF6EE7B7) : AppColors.successText);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.lg,
+        vertical: AppSpacing.md,
+      ),
+      decoration: BoxDecoration(
+        color: bannerBg,
+        border: Border(
+          bottom: BorderSide(color: borderColor, width: 1),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            isEmergency
+                ? Icons.warning_amber_rounded
+                : Icons.check_circle_outline_rounded,
+            color: borderColor,
+            size: AppIconSize.md,
+          ),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'AI Chat',
-                  style: TextStyle(
-                    color: Color(0xFF1A1A2E),
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  isEmergency
+                      ? 'Urgent Medical Attention Advised'
+                      : 'Clinical Assessment Complete',
+                  style: AppTypography.label.copyWith(color: textColor),
                 ),
-                if (chat.isListening || chat.isSpeaking)
-                  Text(
-                    chat.isListening ? 'Recording...' : 'Playing...',
-                    style: TextStyle(
-                      color: kPrimaryBlue,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMessageList(ChatProvider chat) {
-    // قائمة الرسائل مع مؤشرات التسجيل والكتابة
-    final bool showIndicator = chat.isListening || chat.isTyping;
-    return ListView.builder(
-      controller: _scrollController,
-      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      itemCount: chat.messages.length + (showIndicator ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == chat.messages.length) {
-          if (chat.isListening) return _buildListeningIndicator();
-          return const _TypingIndicator();
-        }
-        final message = chat.messages[index];
-        return _ChatBubble(
-          message: message,
-          onSpeak: () => chat.speakMessage(message),
-          isSpeaking: chat.isSpeaking,
-        );
-      },
-    );
-  }
-
-  Widget _buildListeningIndicator() {
-    // مؤشر التسجيل الصوتي أثناء تسجيل رسالة المستخدم
-    return Padding(
-      padding: const EdgeInsets.only(top: 3, bottom: 3, left: 52, right: 0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: kPrimaryBlue.withValues(alpha: 0.1),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(18),
-                topRight: Radius.circular(18),
-                bottomLeft: Radius.circular(18),
-                bottomRight: Radius.circular(4),
-              ),
-              border: Border.all(
-                color: kPrimaryBlue.withValues(alpha: 0.35),
-                width: 1,
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.mic, color: kPrimaryBlue, size: 14),
-                const SizedBox(width: 6),
+                const SizedBox(height: 2),
                 Text(
-                  'Recording your message...',
-                  style: TextStyle(
-                    color: kPrimaryBlue,
-                    fontSize: 13,
-                    fontStyle: FontStyle.italic,
+                  isEmergency
+                      ? 'Please consult an emergency facility or doctor promptly.'
+                      : 'Review triage recommendations below or book a consultation.',
+                  style: AppTypography.caption.copyWith(
+                    color: textColor.withValues(alpha: 0.9),
                   ),
                 ),
               ],
@@ -271,120 +270,130 @@ class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildInputBar(ChatProvider chat) {
-    // شريط الإدخال مع زر التسجيل الصوتي وزر الإرسال
-    return Container(
-      padding: EdgeInsets.fromLTRB(12, 10, 12, 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: Offset(0, -2),
+  Widget _buildListeningIndicator(bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.only(
+        top: AppSpacing.xs,
+        bottom: AppSpacing.xs,
+        left: AppSpacing.xxxl,
+      ),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
           ),
-        ],
+          decoration: BoxDecoration(
+            color: isDark
+                ? AppColors.primaryContainerDark
+                : AppColors.primaryLight,
+            borderRadius: AppRadius.medium,
+            border: Border.all(
+              color: AppColors.primary.withValues(alpha: 0.3),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.graphic_eq_rounded,
+                size: AppIconSize.sm,
+                color: AppColors.primary,
+              ),
+              const SizedBox(width: AppSpacing.xs),
+              Text(
+                'Listening...',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(ChatProvider chat, bool isDark) {
+    final textPrimary =
+        isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          // Voice Mic Button
+          Semantics(
+            button: true,
+            label: chat.isListening ? 'Stop listening' : 'Start voice input',
+            child: InkWell(
+              onTap:
+                  chat.isListening ? chat.stopListening : chat.startListening,
+              customBorder: const CircleBorder(),
+              child: ScaleTransition(
+                scale: chat.isListening
+                    ? _pulseAnimation
+                    : const AlwaysStoppedAnimation(1.0),
+                child: Container(
+                  width: AppMetrics.minTarget,
+                  height: AppMetrics.minTarget,
+                  decoration: BoxDecoration(
+                    color: chat.isListening
+                        ? AppColors.destructive
+                        : AppColors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    chat.isListening ? Icons.stop_rounded : Icons.mic_rounded,
+                    color: Colors.white,
+                    size: AppIconSize.md,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+
+          // Text Field
           Expanded(
-            child: Container(
-              constraints: BoxConstraints(maxHeight: 120),
-              decoration: BoxDecoration(
-                color: Color(0xFFF0F2F5),
-                borderRadius: BorderRadius.circular(24),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  SizedBox(width: 16),
-                  Expanded(
-                    child: TextField(
-                      controller: _textController,
-                      maxLines: null,
-                      style: TextStyle(
-                        color: Color(0xFF1A1A2E),
-                        fontSize: 14.5,
-                        height: 1.4,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Type a message...',
-                        hintStyle: TextStyle(
-                          color: Color(0xFFAAAAAA),
-                          fontSize: 14.5,
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(vertical: 12),
-                      ),
-                      onSubmitted: (_) => _sendText(),
-                    ),
-                  ),
-                  SizedBox(width: 8),
-                ],
-              ),
-            ),
-          ),
-          SizedBox(width: 8),
-          GestureDetector(
-            onTap: () {
-              if (chat.isListening) {
-                // إذا كان في وضع التسجيل، إيقاف التسجيل، وإلا بدء التسجيل
-                chat.stopListening();
-              } else {
-                chat.startListening();
-              }
-            },
-            child: AnimatedBuilder(
-              animation: _pulseAnimation,
-              builder: (context, child) => Transform.scale(
-                scale: chat.isListening ? _pulseAnimation.value : 1.0,
-                child: child,
-              ),
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: chat.isListening ? kPrimaryBlue : Color(0xFFF0F2F5),
-                  boxShadow: chat.isListening
-                      ? [
-                          BoxShadow(
-                            color: kPrimaryBlue.withValues(alpha: 0.35),
-                            blurRadius: 18,
-                            spreadRadius: 2,
-                          ),
-                        ]
-                      : null,
-                ),
-                child: Icon(
-                  chat.isListening
-                      ? Icons.stop_rounded
-                      : Icons.mic_none_rounded,
-                  color: chat.isListening ? Colors.white : kPrimaryBlue,
-                  size: 22,
+            child: TextField(
+              controller: _textController,
+              textInputAction: TextInputAction.send,
+              onSubmitted: (_) => _sendText(),
+              minLines: 1,
+              maxLines: 3,
+              style: AppTypography.body.copyWith(color: textPrimary),
+              decoration: const InputDecoration(
+                hintText: 'Type symptom or question...',
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.md,
                 ),
               ),
             ),
           ),
-          SizedBox(width: 8),
-          GestureDetector(
-            onTap: _sendText,
-            child: Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: kPrimaryBlue,
-                boxShadow: [
-                  BoxShadow(
-                    color: kPrimaryBlue.withValues(alpha: 0.3),
-                    blurRadius: 12,
-                    spreadRadius: 1,
-                  ),
-                ],
+          const SizedBox(width: AppSpacing.sm),
+
+          // Send Button
+          IconButton.filled(
+            tooltip: 'Send message',
+            onPressed: _sendText,
+            icon: const Icon(Icons.send_rounded, size: AppIconSize.md),
+            style: IconButton.styleFrom(
+              minimumSize: const Size(
+                AppMetrics.minTarget,
+                AppMetrics.minTarget,
               ),
-              child: Icon(Icons.send_rounded, color: Colors.white, size: 20),
+              shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
             ),
           ),
         ],
@@ -393,76 +402,53 @@ class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
   }
 
   Widget _buildCompletionButton(ChatProvider chat) {
-    // زر إكمال التقييم بناءً على حالة التقييم
-    final Color backgroundColor;
-    final IconData icon;
-    final String label;
-    final VoidCallback onPressed;
+    final isEmergency = chat.triageUrgency == 'red';
 
-    switch (chat.triageUrgency) {
-      case 'red':
-        backgroundColor = Colors.red;
-        icon = Icons.warning_amber_rounded;
-        label = 'EMERGENCY: Call Ambulance';
-        onPressed = () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Row(
-                children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.white),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Go to the Emergency Room immediately or call your local emergency number!',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-              backgroundColor: Colors.red.shade700,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 5),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          );
-        };
-        break;
-
-      case 'green':
-      default:
-        backgroundColor = Colors.green;
-        icon = Icons.home_rounded;
-        label = 'Understood, Back to Home';
-        onPressed = () => Navigator.pop(context);
-        break;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
       child: SizedBox(
         width: double.infinity,
         child: ElevatedButton.icon(
-          onPressed: onPressed,
-          icon: Icon(icon, color: Colors.white),
+          onPressed: () {
+            if (isEmergency) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'Contact your local emergency hotline or visit nearest ER immediately.',
+                  ),
+                  backgroundColor: AppColors.destructive,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            } else {
+              Navigator.pop(context);
+            }
+          },
+          icon: Icon(
+            isEmergency
+                ? Icons.emergency_rounded
+                : Icons.check_circle_outline_rounded,
+            size: AppIconSize.sm,
+          ),
           label: Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.5,
-            ),
+            isEmergency
+                ? 'Emergency Guidance'
+                : 'Complete Consultation & Return',
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
           style: ElevatedButton.styleFrom(
-            backgroundColor: backgroundColor,
+            backgroundColor:
+                isEmergency ? AppColors.destructive : AppColors.primary,
             foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            elevation: 3,
+            minimumSize: const Size(0, AppMetrics.controlHeight),
           ),
         ),
       ),
@@ -471,112 +457,126 @@ class _VoiceChatState extends State<VoiceChat> with TickerProviderStateMixin {
 }
 
 class _ChatBubble extends StatelessWidget {
-  // فقاعة الدردشة لكل رسالة مع زر الاستماع إذا كانت رسالة AI
   final ChatMessage message;
   final VoidCallback onSpeak;
   final bool isSpeaking;
+  final bool isDark;
 
   const _ChatBubble({
     required this.message,
     required this.onSpeak,
     required this.isSpeaking,
+    required this.isDark,
   });
 
   @override
   Widget build(BuildContext context) {
     final isUser = message.isUser;
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
 
     return Padding(
       padding: EdgeInsets.only(
-        top: 3,
-        bottom: 3,
-        left: isUser ? 52 : 0,
-        right: isUser ? 0 : 52,
+        top: AppSpacing.xs,
+        bottom: AppSpacing.xs,
+        left: isUser ? AppSpacing.xxxl : 0,
+        right: isUser ? 0 : AppSpacing.xxxl,
       ),
       child: Row(
         mainAxisAlignment:
             isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!isUser)
+          if (!isUser) ...[
             Container(
-              width: 30,
-              height: 30,
-              margin: EdgeInsets.only(right: 6, bottom: 2),
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: kPrimaryBlue,
+                color: isDark
+                    ? AppColors.primaryContainerDark
+                    : AppColors.primaryLight,
+                borderRadius: AppRadius.small,
               ),
-              child: Center(
-                child: Text(
-                  'AI',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
+              alignment: Alignment.center,
+              child: Text(
+                'AI',
+                style: AppTypography.caption.copyWith(
+                  color: isDark ? const Color(0xFFBFDBFE) : AppColors.primary,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
+            const SizedBox(width: AppSpacing.sm),
+          ],
           Flexible(
-            child: Row(
-              mainAxisAlignment:
-                  isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Flexible(
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: isUser ? kPrimaryBlue : Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: Radius.circular(18),
-                        topRight: Radius.circular(18),
-                        bottomLeft: Radius.circular(isUser ? 18 : 4),
-                        bottomRight: Radius.circular(isUser ? 4 : 18),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.06),
-                          blurRadius: 6,
-                          offset: Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: isUser
-                          ? CrossAxisAlignment.end
-                          : CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          message.text,
-                          style: TextStyle(
-                            color: isUser ? Colors.white : Color(0xFF1A1A2E),
-                            fontSize: 14.5,
-                            height: 1.45,
-                          ),
-                        ),
-                        SizedBox(height: 4),
-                        Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _formatTime(message.timestamp),
-                              style: TextStyle(
-                                color: isUser
-                                    ? Colors.white.withValues(alpha: 0.5)
-                                    : Color(0xFFAAAAAA),
-                                fontSize: 10.5,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.sm,
+              ),
+              decoration: BoxDecoration(
+                color: isUser
+                    ? AppColors.primary
+                    : (isDark ? AppColors.cardDark : AppColors.cardLight),
+                borderRadius: AppRadius.medium,
+                border: Border.all(
+                  color: isUser
+                      ? AppColors.primary
+                      : (isDark
+                          ? AppColors.borderDark
+                          : AppColors.borderLight),
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: isUser
+                    ? CrossAxisAlignment.end
+                    : CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    message.text,
+                    style: AppTypography.body.copyWith(
+                      color: isUser ? Colors.white : textPrimary,
                     ),
                   ),
-                ),
-                if (!isUser) ...[SizedBox(width: 5), _buildVoiceBtn()],
-              ],
+                  const SizedBox(height: AppSpacing.xs),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatTime(message.timestamp),
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 10,
+                          color: isUser
+                              ? Colors.white.withValues(alpha: 0.8)
+                              : (isDark
+                                  ? AppColors.textSecondaryDark
+                                  : AppColors.textSecondaryLight),
+                        ),
+                      ),
+                      if (!isUser) ...[
+                        const SizedBox(width: AppSpacing.xs),
+                        Semantics(
+                          button: true,
+                          label: 'Speak message',
+                          child: InkResponse(
+                            onTap: onSpeak,
+                            radius: 18,
+                            child: Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: Icon(
+                                isSpeaking
+                                    ? Icons.volume_up_rounded
+                                    : Icons.volume_up_outlined,
+                                size: AppIconSize.sm,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -584,35 +584,7 @@ class _ChatBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildVoiceBtn() {
-    // زر الاستماع لرسائل AI، يظهر فقط إذا كانت الرسالة ليست من المستخدم
-    return GestureDetector(
-      onTap: onSpeak,
-      child: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.08),
-              blurRadius: 6,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Icon(
-          Icons.volume_up_outlined,
-          size: 14,
-          color: Color(0xFF6C63FF),
-        ),
-      ),
-    );
-  }
-
   String _formatTime(DateTime time) {
-    // تنسيق الوقت لعرضه بجانب كل رسالة
     final h = time.hour.toString().padLeft(2, '0');
     final m = time.minute.toString().padLeft(2, '0');
     return '$h:$m';
@@ -620,15 +592,14 @@ class _ChatBubble extends StatelessWidget {
 }
 
 class _TypingIndicator extends StatefulWidget {
-  // مؤشر الكتابة مع ثلاث نقاط متحركة يظهر عندما يكون AI يكتب ردًا
-  const _TypingIndicator();
+  final bool isDark;
+  const _TypingIndicator({required this.isDark});
 
   @override
   State<_TypingIndicator> createState() => _TypingIndicatorState();
 }
 
-class _TypingIndicatorState extends State<_TypingIndicator>
-    with SingleTickerProviderStateMixin {
+class _TypingIndicatorState extends State<_TypingIndicator> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -649,72 +620,66 @@ class _TypingIndicatorState extends State<_TypingIndicator>
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 3, bottom: 3, left: 0, right: 52),
+      padding: const EdgeInsets.only(
+        top: AppSpacing.xs,
+        bottom: AppSpacing.xs,
+        right: AppSpacing.xxxl,
+      ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
-            width: 30,
-            height: 30,
-            margin: const EdgeInsets.only(right: 6, bottom: 2),
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: Color(0xFF407CE2),
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: widget.isDark
+                  ? AppColors.primaryContainerDark
+                  : AppColors.primaryLight,
+              borderRadius: AppRadius.small,
             ),
-            child: const Center(
-              child: Text(
-                'AI',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
+            alignment: Alignment.center,
+            child: Text(
+              'AI',
+              style: AppTypography.caption.copyWith(
+                color:
+                    widget.isDark ? const Color(0xFFBFDBFE) : AppColors.primary,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
+          const SizedBox(width: AppSpacing.sm),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.md,
+            ),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(18),
-                topRight: Radius.circular(18),
-                bottomLeft: Radius.circular(4),
-                bottomRight: Radius.circular(18),
+              color: widget.isDark
+                  ? AppColors.cardDark
+                  : AppColors.cardLight,
+              borderRadius: AppRadius.medium,
+              border: Border.all(
+                color: widget.isDark
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.06),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: List.generate(3, (i) {
-                // ثلاث نقاط متحركة مع تأخير زمني لإنشاء تأثير النبض أثناء الكتابة
                 return AnimatedBuilder(
                   animation: _controller,
                   builder: (_, __) {
-                    final delay = i *
-                        0.3; // تأخير زمني لكل نقطة لإنشاء تأثير النبض المتتالي
-                    final t = (_controller.value + delay) %
-                        1.0; // قيمة بين 0 و 1 مع تأخير لكل نقطة
-                    final scale = 0.6 +
-                        0.4 *
-                            (t < 0.5
-                                ? t * 2
-                                : (1 - t) *
-                                    2); // مقياس يتراوح بين 0.6 و 1.0 لإنشاء تأثير النبض
+                    final progress = (_controller.value - (i * 0.2)) % 1.0;
+                    final opacity =
+                        (progress < 0.5 ? progress * 2 : (1.0 - progress) * 2)
+                            .clamp(0.2, 1.0);
                     return Container(
-                      margin: const EdgeInsets.symmetric(horizontal: 3),
-                      width: 8 * scale,
-                      height: 8 * scale,
+                      width: 6,
+                      height: 6,
+                      margin: const EdgeInsets.symmetric(horizontal: 2),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF407CE2).withValues(alpha: 0.7),
                         shape: BoxShape.circle,
+                        color: AppColors.primary.withValues(alpha: opacity),
                       ),
                     );
                   },

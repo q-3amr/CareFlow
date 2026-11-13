@@ -1,6 +1,9 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 
 class MapPickerScreen extends StatefulWidget {
   const MapPickerScreen({super.key});
@@ -10,7 +13,6 @@ class MapPickerScreen extends StatefulWidget {
 }
 
 class _MapPickerScreenState extends State<MapPickerScreen> {
-
   static const LatLng _initialPosition = LatLng(31.9539, 35.9106);
   LatLng? _pickedLocation;
   GoogleMapController? _mapController;
@@ -20,53 +22,58 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
     _mapController = controller;
   }
 
-void _showSnackBar(String message, Color color) {
+  void _showSnackBar(String message, Color color) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: color),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
-Future<void> _goToCurrentLocation() async {
+  Future<void> _goToCurrentLocation() async {
     setState(() => _isLoading = true);
 
     try {
       bool serviceEnabled;
       LocationPermission permission;
 
-serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _showSnackBar(
-            "Please enable Location Services (GPS) from device settings", Colors.orange);
+            "Please enable Location Services (GPS) from device settings",
+            AppColors.warning);
         setState(() => _isLoading = false);
         return;
       }
 
-permission = await Geolocator.checkPermission();
+      permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied) {
-          _showSnackBar("Location permission denied", Colors.red);
+          _showSnackBar("Location permission denied", AppColors.destructive);
           setState(() => _isLoading = false);
           return;
         }
       }
 
       if (permission == LocationPermission.deniedForever) {
-        _showSnackBar("Location permission is permanently denied, please enable it from Settings",
-            Colors.red);
+        _showSnackBar(
+            "Location permission is permanently denied, please enable it from Settings",
+            AppColors.destructive);
         setState(() => _isLoading = false);
         return;
       }
 
-Position position = await Geolocator.getCurrentPosition(
+      Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit:
-            const Duration(seconds: 10),
+        timeLimit: const Duration(seconds: 10),
       );
 
       LatLng currentLatLng = LatLng(position.latitude, position.longitude);
 
-_mapController?.animateCamera(
+      _mapController?.animateCamera(
         CameraUpdate.newLatLngZoom(currentLatLng, 15),
       );
 
@@ -75,7 +82,8 @@ _mapController?.animateCamera(
         _isLoading = false;
       });
     } catch (e) {
-      _showSnackBar("An error occurred while fetching location: $e", Colors.red);
+      _showSnackBar("An error occurred while fetching location: $e",
+          AppColors.destructive);
       setState(() => _isLoading = false);
     }
   }
@@ -90,15 +98,16 @@ _mapController?.animateCamera(
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pick Clinic Location'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        elevation: 0,
+        title: const Text('Pick clinic location'),
         actions: [
           if (_pickedLocation != null)
             IconButton(
-              icon:
-                  const Icon(Icons.check_circle, color: Colors.green, size: 30),
+              tooltip: 'Use this location',
+              icon: const Icon(
+                Icons.check_circle_rounded,
+                color: AppColors.primary,
+                size: AppIconSize.lg,
+              ),
               onPressed: () => Navigator.of(context).pop(_pickedLocation),
             ),
         ],
@@ -128,16 +137,14 @@ _mapController?.animateCamera(
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _isLoading ? null : _goToCurrentLocation,
-        label: Text(_isLoading ? 'Locating...' : 'My Current Location'),
+        label: Text(_isLoading ? 'Locating...' : 'My current location'),
         icon: _isLoading
             ? const SizedBox(
-                width: 20,
-                height: 20,
+                width: AppIconSize.md,
+                height: AppIconSize.md,
                 child: CircularProgressIndicator(
-                    color: Colors.blue, strokeWidth: 2))
-            : const Icon(Icons.my_location),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.blue,
+                    color: Colors.white, strokeWidth: 2))
+            : const Icon(Icons.my_location_rounded),
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
     );

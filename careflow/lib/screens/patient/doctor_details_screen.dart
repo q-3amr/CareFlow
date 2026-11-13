@@ -4,8 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/database_service.dart';
 import '../../services/message.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_badge.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_section_header.dart';
 import '../../widgets/star_rating_widget.dart';
 import '../common/chat_screen.dart';
 import '../auth/login_screen.dart';
@@ -44,6 +49,7 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
   String? _selectedTimeSlot;
   List<String> _availableSlots = [];
   bool _isLoadingSlots = false;
+  bool _isBooking = false;
 
   @override
   void initState() {
@@ -54,20 +60,26 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
   Future<void> _openDirections() async {
     if (widget.latitude != null && widget.longitude != null) {
       final Uri googleMapsUrl = Uri.parse(
-          'google.navigation:q=${widget.latitude},${widget.longitude}&mode=d');
+        'google.navigation:q=${widget.latitude},${widget.longitude}&mode=d',
+      );
 
       try {
         if (await canLaunchUrl(googleMapsUrl)) {
           await launchUrl(googleMapsUrl);
         } else {
           final Uri webUrl = Uri.parse(
-              'https://www.google.com/maps/search/?api=1&query=${widget.latitude},${widget.longitude}');
+            'https://www.google.com/maps/search/?api=1&query=${widget.latitude},${widget.longitude}',
+          );
           await launchUrl(webUrl, mode: LaunchMode.externalApplication);
         }
-      } catch (e) {
+      } catch (_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Could not open maps')),
+            SnackBar(
+              content: const Text('Could not open map navigation'),
+              backgroundColor: AppColors.destructive,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
         }
       }
@@ -81,11 +93,8 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
     });
 
     final dateKey = formatDateKey(date);
-
-    final availabilityDoc = await _db.getAvailability(
-      widget.doctorId ?? '',
-      dateKey,
-    );
+    final availabilityDoc =
+        await _db.getAvailability(widget.doctorId ?? '', dateKey);
 
     if (!availabilityDoc.exists || availabilityDoc['slots'] == null) {
       if (mounted) {
@@ -97,9 +106,8 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
       return;
     }
 
-    final List<String> doctorSlots = List<String>.from(
-      availabilityDoc['slots'],
-    );
+    final List<String> doctorSlots =
+        List<String>.from(availabilityDoc['slots']);
 
     final appointmentsSnap = await FirebaseFirestore.instance
         .collection('appointments')
@@ -138,10 +146,8 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
 
           final slotTime =
               DateTime(date.year, date.month, date.day, hour, minute);
-          if (slotTime.isBefore(now)) {
-            return false;
-          }
-        } catch (e) {}
+          if (slotTime.isBefore(now)) return false;
+        } catch (_) {}
       }
       return true;
     }).toList();
@@ -154,8 +160,8 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
     }
   }
 
-  formatDateTime(DateTime dt) {
-    final hour = dt.hour > 12 ? dt.hour - 12 : dt.hour;
+  String _formatDateTime(DateTime dt) {
+    final hour = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
     final minute = dt.minute.toString().padLeft(2, '0');
     final ampm = dt.hour >= 12 ? 'PM' : 'AM';
     return '$hour:$minute $ampm on ${dt.day}/${dt.month}/${dt.year}';
@@ -168,10 +174,16 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
     }
     if (_selectedTimeSlot == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a time slot first!')),
+        SnackBar(
+          content: const Text('Please select an available time slot'),
+          backgroundColor: AppColors.warning,
+          behavior: SnackBarBehavior.floating,
+        ),
       );
       return;
     }
+
+    setState(() => _isBooking = true);
 
     final parts = _selectedTimeSlot!.split(' ');
     final timeParts = parts[0].split(':');
@@ -190,7 +202,7 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
 
     try {
       final patient = await _db.getUserById(_user!.uid);
-      final patientName = patient?.name ?? 'Unknown';
+      final patientName = patient?.name ?? 'Patient';
 
       final newAppointment = AppointmentModel(
         id: '',
@@ -205,31 +217,34 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
       final error = await _db.bookAppointmentSafely(newAppointment);
 
       if (mounted) {
+        setState(() => _isBooking = false);
         if (error == null) {
-          //عشان المريض يبعت إشعار للدكتور، لازم يعرف "رقم جهاز" الدكتور
           _db.getToken(widget.doctorId ?? '').then((token) {
-            //التطبيق بيستدعي دالة _db.getToken(doctorId)
             if (token.isNotEmpty) {
-              //اللي بتروح على قاعدة البيانات وبتجيب الـ FCM Token الخاص بجوال هذا الدكتور تحديداً.
               _messageServices.sendNotificationToUser(
-                fcmToken: token, //وين يروح الاشعار
-                title: 'New Appointment Request', //عنوان الاشعار
+                fcmToken: token,
+                title: 'New Appointment Request',
                 body:
-                    '$patientName requested an appointment on ${formatDateTime(finalDate)}', //محتوى الاشعار
-                type: 'appointment', //نوع الاشعار
-              ); //
+                    '$patientName requested an appointment on ${_formatDateTime(finalDate)}',
+                type: 'appointment',
+              );
             }
-          }); //
+          });
 
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Request Sent! Wait for approval.')),
+            SnackBar(
+              content: const Text('Appointment requested. Awaiting doctor confirmation.'),
+              backgroundColor: AppColors.success,
+              behavior: SnackBarBehavior.floating,
+            ),
           );
           Navigator.pop(context);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(error),
-              backgroundColor: Colors.red,
+              backgroundColor: AppColors.destructive,
+              behavior: SnackBarBehavior.floating,
             ),
           );
           _generateSlotsForDate(_selectedDate);
@@ -237,25 +252,36 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        setState(() => _isBooking = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: AppColors.destructive,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }
 
   void _showLoginDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = AppColors.textPrimary(isDark);
+    final textSecondary = AppColors.textSecondary(isDark);
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Login Required'),
-        content: const Text(
-          'Please login to book an appointment.',
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.large),
+        title: Text('Authentication Required', style: AppTypography.title.copyWith(color: textPrimary)),
+        content: Text(
+          'Please sign in with your CareFlow account to schedule a consultation.',
+          style: AppTypography.body.copyWith(color: textSecondary),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: Text('Cancel', style: AppTypography.label.copyWith(color: textSecondary)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -263,16 +289,11 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (context) =>
-                      const LoginScreen(returnToPrevious: true),
-                ),
+                    builder: (context) =>
+                        const LoginScreen(returnToPrevious: true)),
               );
             },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: kPrimaryBlue,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Login'),
+            child: const Text('Sign In'),
           ),
         ],
       ),
@@ -281,457 +302,529 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 270.0,
-            floating: false,
-            pinned: true,
-            backgroundColor: kPrimaryBlue,
-            flexibleSpace: FlexibleSpaceBar(
-              background: Container(
-                color: kPrimaryBlue,
-                child: SafeArea(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const SizedBox(height: 20),
-                      Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.white.withValues(alpha: 0.2),
-                        ),
-                        child: const Icon(
-                          Icons.person,
-                          size: 56,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Dr. ${widget.doctorName}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.3,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.specialty,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontSize: 14,
-                          fontWeight: FontWeight.w400,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            leading: IconButton(
-              icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white),
-              onPressed: () => Navigator.pop(context),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.location_on, color: Colors.white),
-                onPressed: _openDirections,
-                tooltip: 'Get Directions',
-              ),
-            ],
-          ),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 4),
-                  StreamBuilder<UserModel?>(
-                    stream: widget.doctorId != null
-                        ? _db.streamUser(widget.doctorId!)
-                        : null,
-                    builder: (context, snap) {
-                      final userModel = snap.data;
-                      double avg = userModel?.rating ?? 0.0;
-                      int count = userModel?.reviewCount ?? 0;
-                      String? bio = userModel?.about;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textSecondary =
+        isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final initials = widget.doctorName.isNotEmpty
+        ? widget.doctorName
+            .trim()
+            .split(' ')
+            .map((n) => n.isNotEmpty ? n[0] : '')
+            .take(2)
+            .join()
+        : 'DR';
+    final hasLocation = widget.latitude != null && widget.longitude != null;
 
-                      return Column(
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Doctor Profile'),
+        actions: [
+          if (hasLocation)
+            IconButton(
+              icon: const Icon(Icons.directions_rounded),
+              tooltip: 'Get directions',
+              onPressed: _openDirections,
+            ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(AppSpacing.lg),
+        children: [
+          // Doctor Hero Card
+          AppCard(
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    AppAvatar(initials: initials, size: 64),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                children: [
-                                  if (avg > 0) ...[
-                                    StarRatingWidget(
-                                      initialRating: avg,
-                                      starSize: 20,
-                                      isReadOnly: true,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      '${avg.toStringAsFixed(1)}  ($count ${count == 1 ? 'Review' : 'Reviews'})',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold),
-                                    ),
-                                  ] else
-                                    const Text(
-                                      'No reviews yet',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                ],
+                              Flexible(
+                                child: Text(
+                                  'Dr. ${widget.doctorName}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.title.copyWith(
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.xs),
+                              const Icon(
+                                Icons.verified_rounded,
+                                color: AppColors.primary,
+                                size: AppIconSize.sm,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          Wrap(
+                            spacing: AppSpacing.xs,
+                            runSpacing: AppSpacing.xs,
+                            children: [
+                              AppBadge(
+                                label: widget.specialty,
+                                variant: AppBadgeVariant.primary,
                               ),
                               if (widget.distance != null)
-                                Text(
-                                  '${widget.distance!.toStringAsFixed(1)} km away',
-                                  style: const TextStyle(
-                                    color: kPrimaryBlue,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
+                                AppBadge(
+                                  label:
+                                      '${widget.distance!.toStringAsFixed(1)} km away',
+                                  variant: AppBadgeVariant.neutral,
                                 ),
                             ],
                           ),
-                          if (bio != null && bio.trim().isNotEmpty) ...[
-                            const SizedBox(height: 24),
-                            const Text(
-                              'About Doctor',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                Divider(height: 1, color: Theme.of(context).dividerColor),
+                const SizedBox(height: AppSpacing.md),
+
+                // Rating & Reviews
+                StreamBuilder<UserModel?>(
+                  stream: widget.doctorId != null
+                      ? _db.streamUser(widget.doctorId!)
+                      : null,
+                  builder: (context, snap) {
+                    final userModel = snap.data;
+                    double avg = userModel?.rating ?? 5.0;
+                    int count = userModel?.reviewCount ?? 0;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.xs,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            StarRatingWidget(
+                              initialRating: avg,
+                              starSize: 15,
+                              isReadOnly: true,
+                            ),
+                            Text(
+                              avg.toStringAsFixed(1),
+                              style: AppTypography.label.copyWith(
+                                color: textPrimary,
                               ),
                             ),
-                            const SizedBox(height: 8),
                             Text(
-                              bio.trim(),
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade600,
-                                height: 1.5,
+                              '($count reviews)',
+                              style: AppTypography.caption.copyWith(
+                                color: textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        Wrap(
+                          spacing: AppSpacing.sm,
+                          runSpacing: AppSpacing.sm,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                if (_user == null) {
+                                  _showLoginDialog();
+                                  return;
+                                }
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (c) => ChatScreen(
+                                      receiverId: widget.doctorId!,
+                                      receiverName: widget.doctorName,
+                                    ),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(
+                                Icons.chat_bubble_outline_rounded,
+                                size: AppIconSize.sm,
+                              ),
+                              label: const Text('Message'),
+                            ),
+                            if (hasLocation)
+                              OutlinedButton.icon(
+                                onPressed: _openDirections,
+                                icon: const Icon(
+                                  Icons.near_me_rounded,
+                                  size: AppIconSize.sm,
+                                ),
+                                label: const Text('Navigate'),
+                              ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Bio Section (if present)
+          StreamBuilder<UserModel?>(
+            stream: widget.doctorId != null
+                ? _db.streamUser(widget.doctorId!)
+                : null,
+            builder: (context, snap) {
+              final bio = snap.data?.about;
+              if (bio == null || bio.trim().isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  AppSectionHeader(title: 'About Doctor'),
+                  const SizedBox(height: AppSpacing.sm),
+                  AppCard(
+                    child: Text(
+                      bio.trim(),
+                      style: AppTypography.body.copyWith(color: textSecondary),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                ],
+              );
+            },
+          ),
+
+          // Date Selection
+          AppSectionHeader(title: 'Select Consultation Date'),
+          const SizedBox(height: AppSpacing.md),
+          SizedBox(
+            height: 76,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: 14,
+              separatorBuilder: (_, __) =>
+                  const SizedBox(width: AppSpacing.sm),
+              itemBuilder: (context, index) {
+                final day = DateTime.now().add(Duration(days: index));
+                final isSelected = day.day == _selectedDate.day &&
+                    day.month == _selectedDate.month;
+
+                return InkWell(
+                  onTap: () {
+                    setState(() => _selectedDate = day);
+                    _generateSlotsForDate(day);
+                  },
+                  borderRadius: AppRadius.medium,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    width: 56,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.cardDark
+                              : AppColors.cardLight),
+                      borderRadius: AppRadius.medium,
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.primary
+                            : (isDark
+                                ? AppColors.borderDark
+                                : AppColors.borderLight),
+                        width: isSelected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                              [day.weekday % 7],
+                          style: AppTypography.caption.copyWith(
+                            color: isSelected
+                                ? Colors.white.withValues(alpha: 0.85)
+                                : textSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${day.day}',
+                          style: AppTypography.section.copyWith(
+                            color: isSelected ? Colors.white : textPrimary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+
+          // Available Slots
+          AppSectionHeader(
+            title: 'Available Time Slots',
+            trailing: _availableSlots.isNotEmpty
+                ? AppBadge(
+                    label: '${_availableSlots.length} available',
+                    variant: AppBadgeVariant.success,
+                  )
+                : null,
+          ),
+          const SizedBox(height: AppSpacing.md),
+
+          if (_isLoadingSlots)
+            const Padding(
+              padding: EdgeInsets.all(AppSpacing.xl),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_availableSlots.isEmpty)
+            AppCard(
+              padding: const EdgeInsets.symmetric(
+                vertical: AppSpacing.lg,
+                horizontal: AppSpacing.lg,
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.event_busy_rounded,
+                    size: AppIconSize.lg,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'No slots open for selected date',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.label.copyWith(color: textPrimary),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    'Please choose another day or consult another doctor',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.caption.copyWith(
+                      color: textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: _availableSlots.map((slot) {
+                final isSelected = _selectedTimeSlot == slot;
+                return InkWell(
+                  onTap: () => setState(
+                      () => _selectedTimeSlot = isSelected ? null : slot),
+                  borderRadius: AppRadius.small,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    constraints: const BoxConstraints(
+                      minHeight: AppMetrics.minTarget,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.md,
+                      vertical: AppSpacing.sm,
+                    ),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.cardDark
+                              : AppColors.cardLight),
+                      borderRadius: AppRadius.small,
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.primary
+                            : (isDark
+                                ? AppColors.borderDark
+                                : AppColors.borderLight),
+                        width: isSelected ? 1.5 : 1,
+                      ),
+                    ),
+                    child: Text(
+                      slot,
+                      style: AppTypography.label.copyWith(
+                        color: isSelected ? Colors.white : textPrimary,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+
+          const SizedBox(height: AppSpacing.xl),
+
+          // Patient Reviews
+          AppSectionHeader(title: 'Patient Reviews'),
+          const SizedBox(height: AppSpacing.sm),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: widget.doctorId != null
+                ? _db.streamReviewsForDoctor(widget.doctorId!)
+                : null,
+            builder: (context, snap) {
+              if (!snap.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.all(AppSpacing.xl),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+
+              final reviews = snap.data!.docs.where((doc) {
+                final d = doc.data() as Map<String, dynamic>;
+                final r = (d['rating'] as num?)?.toDouble() ?? 0.0;
+                return r > 0;
+              }).toList();
+
+              if (reviews.isEmpty) {
+                return AppCard(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  child: Center(
+                    child: Text(
+                      'No verified patient reviews yet',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body.copyWith(color: textSecondary),
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                children: reviews.map((doc) {
+                  final d = doc.data() as Map<String, dynamic>;
+                  final double r = (d['rating'] as num?)?.toDouble() ?? 0.0;
+                  final String patientName =
+                      (d['patient_name'] ?? 'Patient').toString();
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: AppCard(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  patientName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AppTypography.label.copyWith(
+                                    color: textPrimary,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: AppSpacing.sm),
+                              StarRatingWidget(
+                                initialRating: r,
+                                starSize: 13,
+                                isReadOnly: true,
+                              ),
+                              const SizedBox(width: AppSpacing.xs),
+                              Text(
+                                r.toStringAsFixed(1),
+                                style: AppTypography.caption.copyWith(
+                                  color: textPrimary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if ((d['feedback_text'] ?? '')
+                              .toString()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              d['feedback_text'],
+                              style: AppTypography.body.copyWith(
+                                color: textSecondary,
                               ),
                             ),
                           ],
                         ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      onPressed: _openDirections,
-                      icon: const Icon(Icons.map_outlined, color: kPrimaryBlue),
-                      label: const Text(
-                        'Show me the directions',
-                        style: TextStyle(
-                          color: kPrimaryBlue,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: kPrimaryBlue.withValues(alpha: 0.1),
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                          side: BorderSide(
-                              color: kPrimaryBlue.withValues(alpha: 0.3)),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  const Text(
-                    'Select Date',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  SizedBox(
-                    height: 80,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: 14,
-                      itemBuilder: (context, index) {
-                        final day = DateTime.now().add(Duration(days: index));
-                        final isSelected = day.day == _selectedDate.day &&
-                            day.month == _selectedDate.month;
-
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() => _selectedDate = day);
-                            _generateSlotsForDate(day);
-                          },
-                          child: Container(
-                            width: 60,
-                            margin: const EdgeInsets.only(right: 10),
-                            decoration: BoxDecoration(
-                              color: isSelected ? kPrimaryBlue : Colors.white,
-                              borderRadius: BorderRadius.circular(15),
-                              border: Border.all(
-                                color: isSelected
-                                    ? kPrimaryBlue
-                                    : Colors.grey.shade300,
-                              ),
-                            ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  [
-                                    'Sun',
-                                    'Mon',
-                                    'Tue',
-                                    'Wed',
-                                    'Thu',
-                                    'Fri',
-                                    'Sat',
-                                  ][day.weekday % 7],
-                                  style: TextStyle(
-                                    color:
-                                        isSelected ? Colors.white : Colors.grey,
-                                  ),
-                                ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  '${day.day}',
-                                  style: TextStyle(
-                                    color: isSelected
-                                        ? Colors.white
-                                        : Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 30),
-                  const Text(
-                    'Available Time Slots',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 10),
-                  _isLoadingSlots
-                      ? const Center(child: CircularProgressIndicator())
-                      : _availableSlots.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(20),
-                              child: Text(
-                                'No slots available for this day',
-                                style: TextStyle(color: Colors.grey),
-                              ),
-                            )
-                          : Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: _availableSlots.map((slot) {
-                                final isSelected = _selectedTimeSlot == slot;
-                                return ChoiceChip(
-                                  label: Text(slot),
-                                  selected: isSelected,
-                                  selectedColor: kPrimaryBlue,
-                                  labelStyle: TextStyle(
-                                    color: isSelected
-                                        ? Colors.white
-                                        : Colors.black,
-                                  ),
-                                  onSelected: (val) => setState(
-                                    () => _selectedTimeSlot = val ? slot : null,
-                                  ),
-                                );
-                              }).toList(),
-                            ),
-                  const SizedBox(height: 30),
-                  const Text(
-                    'Patient Reviews',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  StreamBuilder<QuerySnapshot>(
-                    stream: widget.doctorId != null
-                        ? _db.streamReviewsForDoctor(widget.doctorId!)
-                        : null,
-                    builder: (context, snap) {
-                      if (!snap.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-
-                      final reviews = snap.data!.docs.where((doc) {
-                        final d = doc.data() as Map<String, dynamic>;
-                        final r = (d['rating'] as num?)?.toDouble() ?? 0.0;
-                        return r > 0;
-                      }).toList();
-
-                      if (reviews.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 20),
-                          child: Center(
-                            child: Text(
-                              'No reviews yet. Be the first!',
-                              style: TextStyle(
-                                  color: Colors.grey.shade400, fontSize: 14),
-                            ),
-                          ),
-                        );
-                      }
-
-                      return Column(
-                        children: reviews.map((doc) {
-                          final d = doc.data() as Map<String, dynamic>;
-                          final double r =
-                              (d['rating'] as num?)?.toDouble() ?? 0.0;
-                          return Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: Colors.grey.shade100),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      d['patient_name'] ?? 'Patient',
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 15),
-                                    ),
-                                    Row(
-                                      children: [
-                                        StarRatingWidget(
-                                          initialRating: r,
-                                          starSize: 16,
-                                          isReadOnly: true,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          r.toStringAsFixed(1),
-                                          style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 12),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                if ((d['feedback_text'] ?? '').isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    d['feedback_text'],
-                                    style: TextStyle(
-                                        color: Colors.grey.shade600,
-                                        height: 1.4,
-                                        fontSize: 13),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 100),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.grey.withValues(alpha: 0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -5),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: kPrimaryBlue.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: IconButton(
-                icon: const Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  color: kPrimaryBlue,
-                ),
-                onPressed: () {
-                  if (_user == null) {
-                    _showLoginDialog();
-                    return;
-                  }
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (c) => ChatScreen(
-                        receiverId: widget.doctorId!,
-                        receiverName: widget.doctorName,
                       ),
                     ),
                   );
-                },
-              ),
-            ),
-            const SizedBox(width: 15),
-            Expanded(
-              child: SizedBox(
-                height: 50,
-                child: ElevatedButton(
-                  onPressed:
-                      _selectedTimeSlot == null ? null : _bookAppointment,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: kPrimaryBlue,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                }).toList(),
+              );
+            },
+          ),
+          const SizedBox(height: AppSpacing.xl),
+        ],
+      ),
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.md,
+        ),
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _selectedTimeSlot != null
+                          ? 'Selected Slot'
+                          : 'Consultation Slot',
+                      style: AppTypography.caption.copyWith(
+                        color: textSecondary,
+                      ),
                     ),
-                  ),
-                  child: const Text(
-                    'Book Appointment',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                    Text(
+                      _selectedTimeSlot != null
+                          ? '${_selectedDate.day}/${_selectedDate.month} • $_selectedTimeSlot'
+                          : 'Choose time slot above',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.label.copyWith(
+                        color: _selectedTimeSlot != null
+                            ? AppColors.primary
+                            : textPrimary,
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: AppSpacing.md),
+              ElevatedButton(
+                onPressed: (_selectedTimeSlot == null || _isBooking)
+                    ? null
+                    : _bookAppointment,
+                child: _isBooking
+                    ? const SizedBox(
+                        width: AppIconSize.md,
+                        height: AppIconSize.md,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Book Now'),
+              ),
+            ],
+          ),
         ),
       ),
     );

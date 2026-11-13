@@ -17,9 +17,11 @@ service cloud.firestore {
 
     // ---- Users ----
     // Patients need to read doctor profiles for search/details.
+    // Guests can browse verified doctor profiles only.
     // Writes are limited to own doc, admin, or rating aggregation.
     match /users/{userId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() ||
+        (resource.data.role == 'doctor' && resource.data.isVerified == true);
 
       allow create: if isSignedIn() && request.auth.uid == userId;
 
@@ -35,7 +37,11 @@ service cloud.firestore {
 
       // Doctor availability slots: users/{uid}/availability/{date}
       match /availability/{dateKey} {
-        allow read: if isSignedIn();
+        // Guests may preview a verified doctor's open slots before signing in
+        // to book.
+        allow read: if isSignedIn() ||
+          (get(/databases/$(database)/documents/users/$(userId)).data.role == 'doctor' &&
+           get(/databases/$(database)/documents/users/$(userId)).data.isVerified == true);
         allow write: if isSelf(userId) || isAdmin();
       }
     }
@@ -68,9 +74,14 @@ service cloud.firestore {
     match /booked_slots/{slotId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() &&
-        request.resource.data.bookedBy == request.auth.uid;
+        request.resource.data.bookedBy == request.auth.uid &&
+        request.resource.data.doctorId is string;
       allow update: if false; // never update, only create/delete
-      allow delete: if isSignedIn();
+      allow delete: if isSignedIn() && (
+        resource.data.bookedBy == request.auth.uid ||
+        resource.data.doctorId == request.auth.uid ||
+        isAdmin()
+      );
     }
 
     // ---- Chats + Messages ----

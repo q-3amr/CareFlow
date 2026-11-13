@@ -3,226 +3,302 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/database_service.dart';
 import '../../models/user.dart';
-import '../../utils/constants.dart';
+import '../../utils/app_colors.dart';
+import '../../utils/app_tokens.dart';
+import '../../widgets/app_avatar.dart';
+import '../../widgets/app_card.dart';
+import '../../widgets/app_empty_state.dart';
 import 'chat_screen.dart';
 
-class ChatsListScreen extends StatelessWidget {
+class ChatsListScreen extends StatefulWidget {
   const ChatsListScreen({super.key});
 
   @override
+  State<ChatsListScreen> createState() => _ChatsListScreenState();
+}
+
+class _ChatsListScreenState extends State<ChatsListScreen> {
+  final db = DatabaseService();
+  final User? currentUser = FirebaseAuth.instance.currentUser;
+  String _searchFilter = '';
+  final TextEditingController _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final db = DatabaseService();
-    final User? currentUser = FirebaseAuth.instance.currentUser;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary =
+        isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textSecondary =
+        isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
 
     return Scaffold(
-      backgroundColor: Colors.white,
       appBar: AppBar(
         title: const Text(
-          'Messages',
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+          'Consultation Messages',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black),
+        automaticallyImplyLeading: false,
         leading: Navigator.canPop(context)
             ? IconButton(
-                icon: const Icon(
-                  Icons.arrow_back_ios_new_rounded,
-                  color: Colors.black,
-                ),
+                tooltip: 'Back',
+                icon: const Icon(Icons.arrow_back_rounded),
                 onPressed: () => Navigator.pop(context),
               )
-            : null, // إخفاء زر الرجوع إذا كانت هذه الشاشة الجذر
-        automaticallyImplyLeading: false, // منع Flutter من إضافة زر رجوع تلقائي
-      ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: currentUser?.uid != null
-            ? FirebaseFirestore.instance
-                .collection('chats') // الاستماع لمجموعة المحادثات في Firestore
-                .where('participants',
-                    arrayContains: currentUser!
-                        .uid) // جلب المحادثات التي يشارك فيها المستخدم الحالي فقط
-                .orderBy('lastMessageTime',
-                    descending: true) // ترتيب المحادثات من الأحدث للأقدم
-                .snapshots()
             : null,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Center(
-                child: Text(
-                    'Error: ${snapshot.error}')); // عرض رسالة خطأ إذا فشل التحميل
-          }
-          if (!snapshot.hasData) {
-            return const Center(
-                child:
-                    CircularProgressIndicator()); // مؤشر تحميل أثناء جلب البيانات
-          }
-
-          final docs =
-              snapshot.data!.docs; // قائمة وثائق المحادثات من Firestore
-
-          if (docs.isEmpty) {
-            // عرض رسالة عندما لا توجد محادثات بعد
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.chat_bubble_outline,
-                    size: 80,
-                    color: Colors.grey.shade300,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    'No messages yet',
-                    style: TextStyle(color: Colors.grey.shade400),
-                  ),
-                ],
+      ),
+      body: Column(
+        children: [
+          // Search Input Header
+          Container(
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.lg,
+              AppSpacing.md,
+              AppSpacing.lg,
+              AppSpacing.md,
+            ),
+            decoration: BoxDecoration(
+              color: isDark ? AppColors.cardDark : AppColors.cardLight,
+              border: Border(
+                bottom: BorderSide(color: Theme.of(context).dividerColor),
               ),
-            );
-          }
+            ),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(
+                  () => _searchFilter = val.trim().toLowerCase()),
+              textInputAction: TextInputAction.search,
+              style: AppTypography.body.copyWith(color: textPrimary),
+              decoration: InputDecoration(
+                hintText: 'Search conversations...',
+                fillColor: AppColors.surfaceSunken,
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _searchFilter.isNotEmpty
+                    ? IconButton(
+                        tooltip: 'Clear search',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchFilter = '');
+                        },
+                      )
+                    : null,
+              ),
+            ),
+          ),
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(20),
-            itemCount: docs.length, // عدد المحادثات
-            itemBuilder: (context, index) {
-              final chatData =
-                  docs[index].data() as Map<String, dynamic>; // بيانات المحادثة
-              final List participants =
-                  chatData['participants']; // قائمة المشاركين في المحادثة
-              final String otherUserId = participants.firstWhere(
-                (id) =>
-                    id !=
-                    currentUser
-                        ?.uid, // إيجاد معرف الشخص الآخر (ليس المستخدم الحالي)
-                orElse: () => '', // إذا لم يُوجد يُعطى قيمة فارغة
-              );
+          // Messages Stream
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: currentUser?.uid != null
+                  ? FirebaseFirestore.instance
+                      .collection('chats')
+                      .where('participants', arrayContains: currentUser!.uid)
+                      .orderBy('lastMessageTime', descending: true)
+                      .snapshots()
+                  : null,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-              if (otherUserId.isEmpty)
-                return const SizedBox(); // تخطي المحادثة إذا لم يوجد مستخدم آخر
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return _buildEmptyState();
+                }
 
-              return FutureBuilder<UserModel?>(
-                future: db.getUserById(
-                    otherUserId), // جلب بيانات المستخدم الآخر من Firestore
-                builder: (context, userSnap) {
-                  if (!userSnap.hasData) {
-                    // عرض مربع رمادي كـ placeholder أثناء تحميل بيانات المستخدم
-                    return Container(
-                      height: 80,
-                      margin: const EdgeInsets.only(bottom: 15),
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade50,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                final docs = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(AppSpacing.lg),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final chatData =
+                        docs[index].data() as Map<String, dynamic>;
+                    final List participants = chatData['participants'] ?? [];
+                    final String otherUserId = participants.firstWhere(
+                      (id) => id != currentUser?.uid,
+                      orElse: () => '',
                     );
-                  }
 
-                  if (userSnap.data == null)
-                    return const SizedBox
-                        .shrink(); // إخفاء العنصر إذا لم يُوجد المستخدم
+                    if (otherUserId.isEmpty) return const SizedBox.shrink();
 
-                  final String name = userSnap.data!.name; // اسم المستخدم الآخر
+                    return FutureBuilder<UserModel?>(
+                      future: db.getUserById(otherUserId),
+                      builder: (context, userSnap) {
+                        if (!userSnap.hasData || userSnap.data == null) {
+                          return const SizedBox.shrink();
+                        }
 
-                  return GestureDetector(
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (c) => ChatScreen(
-                          receiverId:
-                              otherUserId, // تمرير معرف المستخدم الآخر كـ receiverId
-                          receiverName:
-                              name, // تمرير اسم المستخدم الآخر لعرضه في شاشة الدردشة
-                        ),
-                      ),
-                    ),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 15),
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(20),
-                        border:
-                            Border.all(color: Colors.grey.shade300, width: 2.0),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withValues(alpha: 0.05),
-                            blurRadius: 10,
-                            offset: const Offset(0, 5),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            radius: 28,
-                            backgroundColor: kPrimaryBlue.withValues(
-                                alpha: 0.1), // خلفية زرقاء فاتحة لصورة المستخدم
-                            child: Icon(
-                              Icons.person,
-                              color: kPrimaryBlue,
-                              size: 28,
+                        final userModel = userSnap.data!;
+                        final String name = userModel.name;
+
+                        if (_searchFilter.isNotEmpty &&
+                            !name.toLowerCase().contains(_searchFilter)) {
+                          return const SizedBox.shrink();
+                        }
+
+                        final bool isUnread = chatData['isRead'] == false &&
+                            chatData['lastMessageSenderId'] !=
+                                currentUser?.uid;
+
+                        final initials = name.isNotEmpty
+                            ? name
+                                .trim()
+                                .split(' ')
+                                .map((n) => n.isNotEmpty ? n[0] : '')
+                                .take(2)
+                                .join()
+                            : 'US';
+
+                        return Padding(
+                          padding:
+                              const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: AppCard(
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (c) => ChatScreen(
+                                  receiverId: otherUserId,
+                                  receiverName: name,
+                                ),
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 15),
-                          Expanded(
+                            padding: const EdgeInsets.all(AppSpacing.md),
                             child: Row(
                               children: [
+                                // Avatar with unread indicator
+                                Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    AppAvatar(initials: initials, size: 48),
+                                    if (isUnread)
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          width: 12,
+                                          height: 12,
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: Theme.of(context)
+                                                  .cardColor,
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(width: AppSpacing.md),
+
+                                // Chat preview
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        name, // اسم المستخدم الآخر
-                                        maxLines: 1,
-                                        overflow: TextOverflow
-                                            .ellipsis, // اختصار الاسم إذا كان طويلاً
-                                        style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
-                                        ),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              userModel.isDoctor
+                                                  ? 'Dr. $name'
+                                                  : name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: AppTypography.label
+                                                  .copyWith(
+                                                color: textPrimary,
+                                                fontWeight: isUnread
+                                                    ? FontWeight.w700
+                                                    : FontWeight.w600,
+                                              ),
+                                            ),
+                                          ),
+                                          if (chatData['lastMessageTime'] !=
+                                              null) ...[
+                                            const SizedBox(
+                                                width: AppSpacing.sm),
+                                            Text(
+                                              _formatLastTime(
+                                                  chatData['lastMessageTime']),
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                fontSize: 11,
+                                                color: isUnread
+                                                    ? AppColors.primary
+                                                    : textSecondary,
+                                                fontWeight: isUnread
+                                                    ? FontWeight.w600
+                                                    : FontWeight.w400,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
-                                      const SizedBox(height: 5),
+                                      const SizedBox(height: AppSpacing.xs),
                                       Text(
                                         chatData['lastMessage'] ??
-                                            'Start chatting...', // عرض آخر رسالة أو نص افتراضي إذا لم توجد
+                                            'Start chatting...',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Colors.grey.shade600,
-                                          fontSize: 14,
+                                        style: AppTypography.body.copyWith(
+                                          color: isUnread
+                                              ? textPrimary
+                                              : textSecondary,
+                                          fontWeight: isUnread
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
                                         ),
                                       ),
                                     ],
                                   ),
                                 ),
-                                if (chatData['lastMessageSenderId'] !=
-                                        currentUser
-                                            ?.uid && // إذا كانت آخر رسالة من الشخص الآخر
-                                    chatData['isRead'] ==
-                                        false) // وكانت غير مقروءة
-                                  Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF407CE2),
-                                      shape: BoxShape
-                                          .circle, // نقطة زرقاء تشير إلى وجود رسالة غير مقروءة
-                                    ),
-                                  ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          );
-        },
+                        );
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  String _formatLastTime(dynamic timestamp) {
+    if (timestamp is Timestamp) {
+      final dt = timestamp.toDate();
+      final now = DateTime.now();
+      if (dt.day == now.day && dt.month == now.month && dt.year == now.year) {
+        final h = dt.hour > 12 ? dt.hour - 12 : (dt.hour == 0 ? 12 : dt.hour);
+        final m = dt.minute.toString().padLeft(2, '0');
+        final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+        return '$h:$m $ampm';
+      }
+      return '${dt.day}/${dt.month}';
+    }
+    return '';
+  }
+
+  Widget _buildEmptyState() {
+    return const AppEmptyState(
+      icon: Icons.chat_bubble_outline_rounded,
+      title: 'No Messages Yet',
+      message:
+          'Direct messages with your doctors or patients will appear here.',
     );
   }
 }
