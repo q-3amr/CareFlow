@@ -72,7 +72,9 @@ service cloud.firestore {
 
     // ---- Booked slots (double-booking lock) ----
     match /booked_slots/{slotId} {
-      allow read: if isSignedIn();
+      // Public: guests browse a doctor's open slots before signing in.
+      // The doc only holds slot time + uids, no patient details.
+      allow read: if true;
       allow create: if isSignedIn() &&
         request.resource.data.bookedBy == request.auth.uid &&
         request.resource.data.doctorId is string;

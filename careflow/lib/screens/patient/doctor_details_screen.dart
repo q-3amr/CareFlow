@@ -92,71 +92,84 @@ class _DoctorDetailsScreenState extends State<DoctorDetailsScreen> {
       _selectedTimeSlot = null;
     });
 
-    final dateKey = formatDateKey(date);
-    final availabilityDoc =
-        await _db.getAvailability(widget.doctorId ?? '', dateKey);
+    try {
+      final dateKey = formatDateKey(date);
+      final availabilityDoc =
+          await _db.getAvailability(widget.doctorId ?? '', dateKey);
 
-    if (!availabilityDoc.exists || availabilityDoc['slots'] == null) {
+      if (!availabilityDoc.exists || availabilityDoc['slots'] == null) {
+        if (mounted) {
+          setState(() {
+            _availableSlots = [];
+            _isLoadingSlots = false;
+          });
+        }
+        return;
+      }
+
+      final List<String> doctorSlots =
+          List<String>.from(availabilityDoc['slots']);
+
+      // Read the slot locks instead of the appointments collection: a patient
+      // is not allowed to read other patients' appointment docs, so that
+      // query fails with PERMISSION_DENIED.
+      final bookedSnap = await FirebaseFirestore.instance
+          .collection('booked_slots')
+          .where('doctorId', isEqualTo: widget.doctorId ?? '').get();
+
+      final Set<String> takenTimes = {};
+      for (var doc in bookedSnap.docs) {
+        final millis = int.tryParse(doc.id.split('_').last);
+        if (millis == null) continue;
+        final DateTime apptDate = DateTime.fromMillisecondsSinceEpoch(millis);
+
+        if (apptDate.year == date.year &&
+            apptDate.month == date.month &&
+            apptDate.day == date.day) {
+          takenTimes.add(formatTimeFromDateTime(apptDate));
+        }
+      }
+
+      final now = DateTime.now();
+      final bool isToday = date.year == now.year &&
+          date.month == now.month &&
+          date.day == now.day;
+
+      final available = doctorSlots.where((s) {
+        if (takenTimes.contains(s)) return false;
+
+        if (isToday) {
+          try {
+            final parts = s.split(' ');
+            final timeParts = parts[0].split(':');
+            int hour = int.parse(timeParts[0]);
+            int minute = int.parse(timeParts[1]);
+            if (parts[1] == 'PM' && hour != 12) hour += 12;
+            if (parts[1] == 'AM' && hour == 12) hour = 0;
+
+            final slotTime =
+                DateTime(date.year, date.month, date.day, hour, minute);
+            if (slotTime.isBefore(now)) return false;
+          } catch (_) {}
+        }
+        return true;
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _availableSlots = available;
+          _isLoadingSlots = false;
+        });
+      }
+    } catch (e) {
+      // Never leave the slot list spinning forever on a failed query.
+      debugPrint('Failed to load slots for $date: $e');
       if (mounted) {
         setState(() {
           _availableSlots = [];
           _isLoadingSlots = false;
         });
       }
-      return;
-    }
-
-    final List<String> doctorSlots =
-        List<String>.from(availabilityDoc['slots']);
-
-    final appointmentsSnap = await FirebaseFirestore.instance
-        .collection('appointments')
-        .where('doctor_id', isEqualTo: widget.doctorId ?? '')
-        .where('status', whereIn: ['pending', 'accepted']).get();
-
-    final Set<String> takenTimes = {};
-    for (var doc in appointmentsSnap.docs) {
-      final data = doc.data();
-      final rawDate = data['appointmentDateTime'];
-      if (rawDate == null) continue;
-      final DateTime apptDate = (rawDate as Timestamp).toDate();
-
-      if (apptDate.year == date.year &&
-          apptDate.month == date.month &&
-          apptDate.day == date.day) {
-        takenTimes.add(formatTimeFromDateTime(apptDate));
-      }
-    }
-
-    final now = DateTime.now();
-    final bool isToday =
-        date.year == now.year && date.month == now.month && date.day == now.day;
-
-    final available = doctorSlots.where((s) {
-      if (takenTimes.contains(s)) return false;
-
-      if (isToday) {
-        try {
-          final parts = s.split(' ');
-          final timeParts = parts[0].split(':');
-          int hour = int.parse(timeParts[0]);
-          int minute = int.parse(timeParts[1]);
-          if (parts[1] == 'PM' && hour != 12) hour += 12;
-          if (parts[1] == 'AM' && hour == 12) hour = 0;
-
-          final slotTime =
-              DateTime(date.year, date.month, date.day, hour, minute);
-          if (slotTime.isBefore(now)) return false;
-        } catch (_) {}
-      }
-      return true;
-    }).toList();
-
-    if (mounted) {
-      setState(() {
-        _availableSlots = available;
-        _isLoadingSlots = false;
-      });
     }
   }
 

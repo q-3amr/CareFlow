@@ -520,23 +520,22 @@ class DatabaseService {
         });
       }
 
-      // جلب المواعيد المحجوزة بالفعل لهذا الطبيب في نفس اليوم (المعلقة أو المقبولة)
-      QuerySnapshot appointments = await FirebaseFirestore.instance
-          .collection('appointments')
-          .where('doctor_id', isEqualTo: doctorId)
-          .where('status', whereIn: ['pending', 'accepted']).get();
+      // نقرأ الأقفال من booked_slots بدلاً من appointments، لأن المريض لا يملك
+      // صلاحية قراءة مواعيد المرضى الآخرين (PERMISSION_DENIED).
+      QuerySnapshot locks = await FirebaseFirestore.instance
+          .collection('booked_slots')
+          .where('doctorId', isEqualTo: doctorId).get();
 
       // استخراج أوقات المواعيد المحجوزة فقط في نفس التاريخ المطلوب
       List<String> bookedTimes = [];
-      for (var doc in appointments.docs) {
-        final apptData = doc.data() as Map<String, dynamic>;
-        final rawDate = apptData['appointmentDateTime'];
-        if (rawDate == null) continue; // تجاهل أي موعد ليس له تاريخ
-        final DateTime apptDt = (rawDate as Timestamp).toDate(); // حوّل التوقيت الخام إلى DateTime
+      for (var doc in locks.docs) {
+        final millis = int.tryParse(doc.id.split('_').last);
+        if (millis == null) continue;
+        final DateTime apptDt = DateTime.fromMillisecondsSinceEpoch(millis);
         if (apptDt.year == parsedDate.year &&
             apptDt.month == parsedDate.month &&
-            apptDt.day == parsedDate.day) { // تحقق أن الموعد في نفس اليوم المطلوب
-          bookedTimes.add(formatTimeFromDateTime(apptDt)); // أضف وقت هذا الموعد إلى قائمة المحجوزة
+            apptDt.day == parsedDate.day) {
+          bookedTimes.add(formatTimeFromDateTime(apptDt));
         }
       }
 
