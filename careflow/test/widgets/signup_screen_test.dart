@@ -3,6 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:careflow/screens/auth/signup_screen.dart';
 import '../helpers/firebase_mock_helper.dart';
 
+Widget buildTestApp(Widget child) {
+  return MaterialApp(
+    home: child,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(disableAnimations: true),
+      child: child!,
+    ),
+  );
+}
+
 void main() {
   setUpAll(() {
     setupFirebaseMocks();
@@ -11,8 +21,8 @@ void main() {
   group('SignupScreen Widget Tests', () {
     testWidgets('SignupScreen should display all required field labels',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
+      await tester.pumpAndSettle();
 
       // Heading
       expect(find.text('Create Account'), findsOneWidget);
@@ -27,8 +37,8 @@ void main() {
     testWidgets(
         'SignupScreen should show doctor fields when the Doctor role is selected',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
+      await tester.pumpAndSettle();
 
       // Role selector exposes Patient and Doctor options.
       expect(find.text('Patient'), findsOneWidget);
@@ -49,8 +59,8 @@ void main() {
     testWidgets(
         'SignupScreen should show error snackbar when passwords do not match',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
+      await tester.pumpAndSettle();
 
       // TextField index: 0=Full Name, 1=Email, 2=Password, 3=Confirm Password
       final nameField = find.byType(TextField).at(0);
@@ -68,7 +78,7 @@ void main() {
       expect(signUpButton, findsOneWidget);
       await tester.ensureVisible(signUpButton);
       await tester.tap(signUpButton, warnIfMissed: false);
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       // A SnackBar error about mismatched passwords should appear
       expect(find.byType(SnackBar), findsOneWidget);
@@ -78,8 +88,8 @@ void main() {
     testWidgets(
         'SignupScreen should show Medical Specialty dropdown when Doctor is selected',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
+      await tester.pumpAndSettle();
 
       final doctorOption = find.text('Doctor');
       expect(doctorOption, findsOneWidget);

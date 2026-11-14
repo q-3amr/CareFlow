@@ -20,6 +20,20 @@ void main() {
     Size(412, 915),
   ];
 
+  Widget buildTestApp(Widget child, double textScale) {
+    return MaterialApp(
+      theme: AppTheme.lightTheme,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(textScale),
+          disableAnimations: true,
+        ),
+        child: child!,
+      ),
+      home: child,
+    );
+  }
+
   Future<void> pumpScreen(
     WidgetTester tester,
     Widget screen,
@@ -31,25 +45,14 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: AppTheme.lightTheme,
-        builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(
-            textScaler: TextScaler.linear(textScale),
-          ),
-          child: child!,
-        ),
-        home: screen,
-      ),
-    );
-    await tester.pump();
+    await tester.pumpWidget(buildTestApp(screen, textScale));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 
     final scrollable = find.byType(Scrollable);
     if (scrollable.evaluate().isNotEmpty) {
       await tester.drag(scrollable.first, const Offset(0, -1200));
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     }
   }

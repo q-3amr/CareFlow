@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:lottie/lottie.dart';
 import '../../services/auth_service.dart';
 import '../../utils/app_colors.dart';
 import '../../utils/app_tokens.dart';
@@ -16,76 +18,169 @@ class LoginScreen extends StatefulWidget {
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin {
   final _authService = AuthService();
 
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  final FocusNode emailFocus = FocusNode();
+  final FocusNode passwordFocus = FocusNode();
+
   bool isLoading = false;
   bool isObscure = true;
+  String? emailError;
+  String? passwordError;
+
+  // Animation controllers
+  late final AnimationController _morphController;
+  late final AnimationController _successController;
+  late final Animation<double> _buttonScaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _morphController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+
+    _successController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+
+    _buttonScaleAnimation = Tween<double>(begin: 1.0, end: 0.98).animate(
+      CurvedAnimation(parent: _morphController, curve: Curves.easeOutCubic),
+    );
+
+    // Focus listeners for micro-interactions
+    emailFocus.addListener(_onEmailFocusChange);
+    passwordFocus.addListener(_onPasswordFocusChange);
+
+    // Controllers for inline validation
+    emailController.addListener(_onEmailChanged);
+    passwordController.addListener(_onPasswordChanged);
+  }
 
   @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
+    emailFocus.dispose();
+    passwordFocus.dispose();
+    _morphController.dispose();
+    _successController.dispose();
     super.dispose();
   }
 
-  void handleLogin() async {
-    final email = emailController.text.trim();
-    final password = passwordController.text.trim();
+  void _onEmailFocusChange() {
+    if (!emailFocus.hasFocus && emailController.text.isNotEmpty) {
+      _validateEmail();
+    }
+    setState(() {});
+  }
 
-    if (email.isEmpty || password.isEmpty) {
-      _showError('Please enter both email and password');
+  void _onPasswordFocusChange() {
+    if (!passwordFocus.hasFocus && passwordController.text.isNotEmpty) {
+      _validatePassword();
+    }
+    setState(() {});
+  }
+
+  void _onEmailChanged() {
+    if (emailError != null && emailController.text.isNotEmpty) {
+      setState(() => emailError = null);
+    }
+  }
+
+  void _onPasswordChanged() {
+    if (passwordError != null && passwordController.text.isNotEmpty) {
+      setState(() => passwordError = null);
+    }
+  }
+
+  bool _validateEmail() {
+    final email = emailController.text.trim();
+    if (email.isEmpty) {
+      emailError = 'Required';
+      return false;
+    }
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      emailError = 'Enter a valid email';
+      return false;
+    }
+    emailError = null;
+    return true;
+  }
+
+  bool _validatePassword() {
+    final password = passwordController.text;
+    if (password.isEmpty) {
+      passwordError = 'Required';
+      return false;
+    }
+    if (password.length < 6) {
+      passwordError = 'Password too short';
+      return false;
+    }
+    passwordError = null;
+    return true;
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.destructive,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+      ),
+    );
+  }
+
+  Future<void> handleLogin() async {
+    final emailValid = _validateEmail();
+    final passwordValid = _validatePassword();
+    setState(() {});
+
+    if (!emailValid || !passwordValid) {
       return;
     }
 
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+
     setState(() => isLoading = true);
+    await _morphController.forward();
 
     try {
       await _authService.signIn(email, password);
 
       if (!mounted) return;
 
-      // AuthWrapper is the single source of truth for role routing.
-      // Never route straight to a dashboard from here: a failed or missing
-      // profile read must not silently land a non-patient on the patient home.
+      // Play success animation
+      await _successController.forward();
+
+      if (!mounted) return;
+
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (context) => const AuthWrapper()),
         (route) => false,
       );
     } catch (e) {
-      if (mounted) _showError(e.toString());
-    } finally {
-      if (mounted) setState(() => isLoading = false);
-    }
-  }
-
-  void handlePasswordReset() async {
-    final email = emailController.text.trim();
-    if (email.isEmpty) {
-      _showError('Enter your email address to reset password');
-      return;
-    }
-
-    try {
-      await _authService.sendPasswordResetEmail(email);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Password reset link sent to your inbox'),
-            backgroundColor: AppColors.success,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
+        await _morphController.reverse();
+        setState(() => isLoading = false);
+        _showError(e.toString().replaceFirst('Exception: ', ''));
       }
-    } catch (e) {
-      if (mounted) _showError(e.toString());
     }
   }
 
-  void handleGoogleSignIn() async {
+  Future<void> handleGoogleSignIn() async {
+    if (isLoading) return;
+
     setState(() => isLoading = true);
 
     try {
@@ -99,30 +194,51 @@ class _LoginScreenState extends State<LoginScreen> {
         (route) => false,
       );
     } catch (e) {
-      if (mounted) _showError(e.toString());
-    } finally {
-      if (mounted) setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+        _showError(e.toString().replaceFirst('Exception: ', ''));
+      }
     }
   }
 
-  void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.destructive,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+  void handlePasswordReset() async {
+    final email = emailController.text.trim();
+    if (email.isEmpty) {
+      _showError('Enter your email address to reset password');
+      return;
+    }
+
+    if (!RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email)) {
+      _showError('Enter a valid email');
+      return;
+    }
+
+    try {
+      await _authService.sendPasswordResetEmail(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Password reset link sent to your inbox'),
+            backgroundColor: AppColors.success,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) _showError(e.toString().replaceFirst('Exception: ', ''));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppColors.backgroundDark : AppColors.backgroundLight;
-    final textPrimary =
-        isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
-    final textSecondary =
-        isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final divider = Theme.of(context).dividerColor;
+
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
 
     return Scaffold(
       backgroundColor: bg,
@@ -143,7 +259,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 spacing: AppSpacing.lg,
                 runSpacing: AppSpacing.sm,
                 children: [
-                  // Logo + app name (stay together on one line)
+                  // Logo + app name
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -165,18 +281,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ],
                   ),
-                  // Action button
+                  // Guest button
                   if (!widget.returnToPrevious)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.sm,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
                       child: TextButton(
                         onPressed: () {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(
-                                builder: (context) => const GuestHomeScreen()),
+                            MaterialPageRoute(builder: (context) => const GuestHomeScreen()),
                           );
                         },
                         style: TextButton.styleFrom(
@@ -187,14 +300,47 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         child: const Text('Explore as guest'),
+                      ).animate(
+                        effects: [
+                          FadeEffect(duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
+                          SlideEffect(begin: const Offset(0.2, 0), end: Offset.zero, duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
+                        ],
+                        // Disable if reduce motion
+                        controller: reduceMotion ? null : null,
                       ),
                     ),
                 ],
               ),
+            ).animate(
+              effects: reduceMotion
+                  ? []
+                  : [
+                      FadeEffect(duration: 400.ms, curve: Curves.easeOutCubic),
+                      SlideEffect(begin: const Offset(0, -0.3), end: Offset.zero, duration: 400.ms, curve: Curves.easeOutCubic),
+                    ],
             ),
 
-            Divider(
-                height: 1, thickness: 1, color: Theme.of(context).dividerColor),
+            // Top accent line
+            Container(
+              height: 2,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    AppColors.primary.withValues(alpha: 0),
+                    AppColors.primary.withValues(alpha: 0.08),
+                    AppColors.primary.withValues(alpha: 0),
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
+            ).animate(
+              effects: reduceMotion
+                  ? []
+                  : [
+                      FadeEffect(duration: 600.ms, delay: 100.ms, curve: Curves.easeOutCubic),
+                      SlideEffect(begin: const Offset(0, -0.5), end: Offset.zero, duration: 600.ms, delay: 100.ms, curve: Curves.easeOutCubic),
+                    ],
+            ),
 
             // Form Container
             Expanded(
@@ -202,84 +348,69 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(AppSpacing.lg),
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 420),
+                    constraints: const BoxConstraints(maxWidth: 360),
                     child: AppCard(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          // Title
                           Text(
                             'Welcome Back',
-                            style: AppTypography.display.copyWith(
-                              color: textPrimary,
-                            ),
+                            style: AppTypography.display.copyWith(color: textPrimary),
+                          ).animate(
+                            effects: reduceMotion
+                                ? []
+                                : [
+                                    FadeEffect(duration: 400.ms, delay: 100.ms, curve: Curves.easeOutCubic),
+                                    SlideEffect(begin: const Offset(0, 0.2), end: Offset.zero, duration: 400.ms, delay: 100.ms, curve: Curves.easeOutCubic),
+                                  ],
                           ),
-                          const SizedBox(height: AppSpacing.xs),
-                          Text(
-                            'Sign in to manage appointments and records',
-                            style: AppTypography.body.copyWith(
-                              color: textSecondary,
-                            ),
-                          ),
+
                           const SizedBox(height: AppSpacing.xl),
 
-                          // Email
-                          Text(
-                            'Email Address',
-                            style: AppTypography.label.copyWith(
-                              color: textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          TextField(
+                          // Email Field
+                          _AnimatedFormField(
+                            label: 'Email Address',
+                            hint: 'name@example.com',
                             controller: emailController,
+                            focusNode: emailFocus,
+                            errorText: emailError,
+                            prefixIcon: Icons.mail_outline_rounded,
                             keyboardType: TextInputType.emailAddress,
                             textInputAction: TextInputAction.next,
                             autofillHints: const [AutofillHints.email],
-                            style: AppTypography.body.copyWith(
-                              color: textPrimary,
-                            ),
-                            decoration: const InputDecoration(
-                              hintText: 'name@example.com',
-                              prefixIcon: Icon(Icons.mail_outline_rounded),
-                            ),
+                            onFieldSubmitted: (_) => passwordFocus.requestFocus(),
+                            delay: 180,
+                            reduceMotion: reduceMotion,
                           ),
+
                           const SizedBox(height: AppSpacing.md),
 
-                          // Password
-                          Text(
-                            'Password',
-                            style: AppTypography.label.copyWith(
-                              color: textPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: AppSpacing.sm),
-                          TextField(
+                          // Password Field
+                          _AnimatedFormField(
+                            label: 'Password',
+                            hint: 'Enter your password',
                             controller: passwordController,
+                            focusNode: passwordFocus,
+                            errorText: passwordError,
+                            prefixIcon: Icons.lock_outline_rounded,
                             obscureText: isObscure,
                             textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => handleLogin(),
-                            style: AppTypography.body.copyWith(
-                              color: textPrimary,
-                            ),
-                            decoration: InputDecoration(
-                              hintText: 'Enter your password',
-                              prefixIcon:
-                                  const Icon(Icons.lock_outline_rounded),
-                              suffixIcon: IconButton(
-                                tooltip: isObscure
-                                    ? 'Show password'
-                                    : 'Hide password',
-                                icon: Icon(
-                                  isObscure
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                ),
-                                onPressed: () =>
-                                    setState(() => isObscure = !isObscure),
+                            autofillHints: const [AutofillHints.password],
+                            suffixIcon: IconButton(
+                              tooltip: isObscure ? 'Show password' : 'Hide password',
+                              icon: Icon(
+                                isObscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                               ),
+                              onPressed: () => setState(() => isObscure = !isObscure),
                             ),
+                            onFieldSubmitted: (_) => handleLogin(),
+                            delay: 260,
+                            reduceMotion: reduceMotion,
                           ),
+
+                          const SizedBox(height: AppSpacing.sm),
 
                           // Forgot Password
                           Align(
@@ -287,32 +418,94 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: TextButton(
                               onPressed: handlePasswordReset,
                               style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.sm,
-                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
                               ),
                               child: const Text('Forgot Password?'),
                             ),
+                          ).animate(
+                            effects: reduceMotion
+                                ? []
+                                : [
+                                    FadeEffect(duration: 300.ms, delay: 340.ms, curve: Curves.easeOut),
+                                  ],
                           ),
 
                           const SizedBox(height: AppSpacing.sm),
 
-                          // Submit Button
-                          SizedBox(
-                            height: AppMetrics.controlHeight,
-                            child: ElevatedButton(
-                              onPressed: isLoading ? null : handleLogin,
-                              child: isLoading
-                                  ? const SizedBox(
-                                      width: AppIconSize.md,
-                                      height: AppIconSize.md,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2.2,
-                                        color: Colors.white,
+                          // Sign In Button (Morphing)
+                          AnimatedBuilder(
+                            animation: _morphController,
+                            builder: (context, child) {
+                              final isMorphing = _morphController.value > 0;
+                              final showSpinner = _morphController.value > 0.5 && _morphController.value < 1.0;
+                              final showCheckmark = _successController.value > 0;
+
+                              return Transform.scale(
+                                scale: _buttonScaleAnimation.value,
+                                child: SizedBox(
+                                  height: AppMetrics.controlHeight,
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      // Base button (fades out during morph)
+                                      Opacity(
+                                        opacity: 1.0 - _morphController.value,
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 300),
+                                          curve: Curves.easeInOutCubic,
+                                          width: isMorphing ? AppMetrics.controlHeight : double.infinity,
+                                          child: ElevatedButton(
+                                            onPressed: isLoading ? null : handleLogin,
+                                            style: ElevatedButton.styleFrom(
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius: BorderRadius.circular(
+                                                  isMorphing ? 24 : AppRadius.md,
+                                                ),
+                                              ),
+                                            ),
+                                            child: const Text('Sign In'),
+                                          ),
+                                        ),
                                       ),
-                                    )
-                                  : const Text('Sign In'),
-                            ),
+
+                                      // Loading spinner (Lottie)
+                                      if (showSpinner)
+                                        SizedBox(
+                                          width: 48,
+                                          height: 48,
+                                          child: Lottie.asset(
+                                            'assets/animations/loading_spinner.json',
+                                            repeat: true,
+                                            animate: true,
+                                          ),
+                                        ),
+
+                                      // Success checkmark (Lottie)
+                                      if (showCheckmark)
+                                        SizedBox(
+                                          width: 48,
+                                          height: 48,
+                                          child: Lottie.asset(
+                                            'assets/animations/check_success.json',
+                                            repeat: false,
+                                            controller: _successController,
+                                            onLoaded: (composition) {
+                                              _successController.duration = composition.duration;
+                                            },
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ).animate(
+                            effects: reduceMotion
+                                ? []
+                                : [
+                                    FadeEffect(duration: 400.ms, delay: 400.ms, curve: Curves.easeOutBack),
+                                    ScaleEffect(begin: const Offset(0.9, 0.9), end: const Offset(1.0, 1.0), duration: 400.ms, delay: 400.ms, curve: Curves.easeOutBack),
+                                  ],
                           ),
 
                           const SizedBox(height: AppSpacing.md),
@@ -327,20 +520,25 @@ class _LoginScreenState extends State<LoginScreen> {
                                 width: 20,
                                 height: 20,
                                 errorBuilder: (context, error, stackTrace) =>
-                                    const Icon(Icons.g_mobiledata_rounded,
-                                        size: 20),
+                                    const Icon(Icons.g_mobiledata_rounded, size: 20),
                               ),
                               label: const Text('Continue with Google'),
                               style: OutlinedButton.styleFrom(
                                 side: BorderSide(
-                                  color: Theme.of(context).dividerColor,
+                                  color: divider,
                                 ),
                                 shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(
-                                      AppRadius.md),
+                                  borderRadius: BorderRadius.circular(AppRadius.md),
                                 ),
                               ),
                             ),
+                          ).animate(
+                            effects: reduceMotion
+                                ? []
+                                : [
+                                    FadeEffect(duration: 400.ms, delay: 460.ms, curve: Curves.easeOutCubic),
+                                    SlideEffect(begin: const Offset(0, 0.2), end: const Offset(0, 0), duration: 400.ms, delay: 460.ms, curve: Curves.easeOutCubic),
+                                  ],
                           ),
 
                           const SizedBox(height: AppSpacing.lg),
@@ -353,22 +551,24 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Text(
                                 "Don't have an account?",
-                                style: AppTypography.body.copyWith(
-                                  color: textSecondary,
-                                ),
+                                style: AppTypography.body.copyWith(color: textSecondary),
                               ),
                               TextButton(
                                 onPressed: () {
                                   Navigator.pushReplacement(
                                     context,
-                                    MaterialPageRoute(
-                                        builder: (context) =>
-                                            const SignupScreen()),
+                                    MaterialPageRoute(builder: (context) => const SignupScreen()),
                                   );
                                 },
                                 child: const Text('Register'),
                               ),
                             ],
+                          ).animate(
+                            effects: reduceMotion
+                                ? []
+                                : [
+                                    FadeEffect(duration: 300.ms, delay: 520.ms, curve: Curves.easeOut),
+                                  ],
                           ),
                         ],
                       ),
@@ -376,6 +576,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ),
+            ).animate(
+              effects: reduceMotion
+                  ? []
+                  : [
+                      FadeEffect(duration: 400.ms, delay: 50.ms, curve: Curves.easeOutCubic),
+                      SlideEffect(begin: const Offset(0, 0.15), end: Offset.zero, duration: 400.ms, delay: 50.ms, curve: Curves.easeOutCubic),
+                    ],
             ),
 
             // Bottom Trust Footer
@@ -397,17 +604,202 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Text(
                       '256-Bit SSL Encrypted Healthcare Portal',
                       maxLines: 2,
-                      style: AppTypography.caption.copyWith(
-                        color: textSecondary,
-                      ),
+                      style: AppTypography.caption.copyWith(color: textSecondary),
                     ),
                   ),
                 ],
               ),
+            ).animate(
+              effects: reduceMotion
+                  ? []
+                  : [
+                      FadeEffect(duration: 400.ms, delay: 580.ms, curve: Curves.easeOut),
+                    ],
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Animated form field with micro-interactions
+class _AnimatedFormField extends StatefulWidget {
+  final String label;
+  final String hint;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final String? errorText;
+  final IconData prefixIcon;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final Iterable<String>? autofillHints;
+  final Widget? suffixIcon;
+  final void Function(String)? onFieldSubmitted;
+  final int delay;
+  final bool reduceMotion;
+
+  const _AnimatedFormField({
+    required this.label,
+    required this.hint,
+    required this.controller,
+    required this.focusNode,
+    required this.errorText,
+    required this.prefixIcon,
+    this.obscureText = false,
+    this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.suffixIcon,
+    this.onFieldSubmitted,
+    required this.delay,
+    required this.reduceMotion,
+  });
+
+  @override
+  State<_AnimatedFormField> createState() => _AnimatedFormFieldState();
+}
+
+class _AnimatedFormFieldState extends State<_AnimatedFormField> {
+  late final FocusNode _internalFocus;
+  bool _hasFocus = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _internalFocus = widget.focusNode;
+    _internalFocus.addListener(_onFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _internalFocus.removeListener(_onFocusChange);
+    super.dispose();
+  }
+
+  void _onFocusChange() {
+    setState(() => _hasFocus = _internalFocus.hasFocus);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight;
+    final textTertiary = isDark ? AppColors.textTertiaryDark : AppColors.textTertiaryLight;
+    final divider = Theme.of(context).dividerColor;
+
+    final hasError = widget.errorText != null && widget.errorText!.isNotEmpty;
+    final isFocused = _hasFocus;
+    final isFilled = widget.controller.text.isNotEmpty;
+
+    // Border color logic
+    Color borderColor;
+    List<BoxShadow>? shadows;
+    Color fillColor;
+
+    if (hasError) {
+      borderColor = AppColors.destructive;
+      fillColor = isDark ? AppColors.destructiveSoftDark : AppColors.destructiveLight;
+    } else if (isFocused) {
+      borderColor = AppColors.primary;
+      fillColor = isDark ? AppColors.cardDark : AppColors.cardLight;
+      shadows = AppShadows.soft;
+    } else if (isFilled) {
+      borderColor = AppColors.success.withValues(alpha: 0.3);
+      fillColor = isDark ? AppColors.cardDark : AppColors.cardLight;
+    } else {
+      borderColor = divider;
+      fillColor = isDark ? AppColors.cardTintDark : AppColors.cardTintLight;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Label
+        Text(
+          widget.label,
+          style: AppTypography.label.copyWith(
+            color: hasError ? AppColors.destructive : (isFocused ? AppColors.primary : textPrimary),
+          ),
+        ).animate(
+          effects: widget.reduceMotion
+              ? []
+              : [
+                  FadeEffect(duration: 300.ms, delay: (widget.delay).ms, curve: Curves.easeOut),
+                  SlideEffect(begin: const Offset(0, 0.1), end: Offset.zero, duration: 300.ms, delay: (widget.delay).ms, curve: Curves.easeOut),
+                ],
+        ),
+
+        const SizedBox(height: AppSpacing.sm),
+
+        // Field
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOutCubic,
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: AppRadius.medium,
+            border: Border.all(color: borderColor, width: hasError || isFocused ? 2 : 1),
+            boxShadow: shadows,
+          ),
+          child: TextField(
+            controller: widget.controller,
+            focusNode: _internalFocus,
+            obscureText: widget.obscureText,
+            keyboardType: widget.keyboardType,
+            textInputAction: widget.textInputAction,
+            autofillHints: widget.autofillHints,
+            onSubmitted: widget.onFieldSubmitted,
+            style: AppTypography.body.copyWith(color: textPrimary),
+            decoration: InputDecoration(
+              hintText: widget.hint,
+              hintStyle: AppTypography.body.copyWith(color: textTertiary),
+              prefixIcon: Icon(widget.prefixIcon, color: isFocused ? AppColors.primary : textTertiary),
+              suffixIcon: widget.suffixIcon,
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+              disabledBorder: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+            ),
+          ),
+        ).animate(
+          effects: widget.reduceMotion
+              ? []
+              : [
+                  FadeEffect(duration: 400.ms, delay: (widget.delay + 50).ms, curve: Curves.easeOutCubic),
+                  SlideEffect(begin: const Offset(0, 0.2), end: Offset.zero, duration: 400.ms, delay: (widget.delay + 50).ms, curve: Curves.easeOutCubic),
+                  ScaleEffect(begin: const Offset(0.98, 0.98), end: const Offset(1.0, 1.0), duration: 400.ms, delay: (widget.delay + 50).ms, curve: Curves.easeOutBack),
+                ],
+        ),
+
+        // Error message
+        if (hasError)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs, left: AppSpacing.xs),
+            child: Text(
+              widget.errorText!,
+              style: AppTypography.caption.copyWith(color: AppColors.destructive),
+            ),
+          ).animate(
+            effects: widget.reduceMotion
+                ? []
+                : [
+                    FadeEffect(duration: 200.ms, curve: Curves.easeOut),
+                    SlideEffect(begin: const Offset(0, -0.1), end: const Offset(0, 0), duration: 200.ms, curve: Curves.easeOut),
+                    // Shake effect
+                    ShakeEffect(
+                      duration: 400.ms,
+                      curve: Curves.easeOut,
+                      hz: 3,
+                      offset: const Offset(8.0, 0),
+                    ),
+                  ],
+          ),
+      ],
     );
   }
 }

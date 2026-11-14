@@ -3,6 +3,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:careflow/screens/auth/login_screen.dart';
 import '../helpers/firebase_mock_helper.dart';
 
+Widget buildTestApp(Widget child) {
+  return MaterialApp(
+    home: child,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(disableAnimations: true),
+      child: child!,
+    ),
+  );
+}
+
 void main() {
   setUpAll(() {
     setupFirebaseMocks();
@@ -12,8 +22,8 @@ void main() {
     testWidgets(
         'LoginScreen should display email and password field labels and buttons',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-      await tester.pump(); // settle initial frame
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
+      await tester.pumpAndSettle();
 
       // Labels rendered by _buildLabeledField
       expect(find.text('Email Address'), findsOneWidget);
@@ -25,33 +35,33 @@ void main() {
     });
 
     testWidgets(
-        'LoginScreen should show error snackbar when fields are empty and Sign In is tapped',
+        'LoginScreen should show inline error when fields are empty and Sign In is tapped',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
+      await tester.pumpAndSettle();
 
       final loginButton = find.text('Sign In');
       expect(loginButton, findsOneWidget);
 
       await tester.ensureVisible(loginButton);
       await tester.tap(loginButton, warnIfMissed: false);
-      await tester.pump(); // trigger setState / snackbar
+      await tester.pumpAndSettle(); // trigger validation
 
-      // A SnackBar should appear telling the user to fill in fields
-      expect(find.byType(SnackBar), findsOneWidget);
+      // Inline error messages should appear for empty fields
+      expect(find.text('Required'), findsNWidgets(2));
     });
 
     testWidgets('LoginScreen should toggle password visibility icon',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
+      await tester.pumpAndSettle();
 
       // Initial state: password is obscured → visibility_outlined icon shown
       final visibilityIcon = find.byIcon(Icons.visibility_outlined);
       expect(visibilityIcon, findsOneWidget);
 
       await tester.tap(visibilityIcon);
-      await tester.pump();
+      await tester.pumpAndSettle();
 
       // After tap: password revealed → visibility_off_outlined icon shown
       expect(find.byIcon(Icons.visibility_off_outlined), findsOneWidget);
@@ -59,8 +69,8 @@ void main() {
 
     testWidgets('LoginScreen shows a Register link to navigate to SignupScreen',
         (WidgetTester tester) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
+      await tester.pumpAndSettle();
 
       final signUpLink = find.text('Register');
       expect(signUpLink, findsOneWidget);

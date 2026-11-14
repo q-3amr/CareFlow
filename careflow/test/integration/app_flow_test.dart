@@ -4,6 +4,16 @@ import 'package:careflow/screens/auth/login_screen.dart';
 import 'package:careflow/screens/auth/signup_screen.dart';
 import '../helpers/firebase_mock_helper.dart';
 
+Widget buildTestApp(Widget child) {
+  return MaterialApp(
+    home: child,
+    builder: (context, child) => MediaQuery(
+      data: MediaQuery.of(context).copyWith(disableAnimations: true),
+      child: child!,
+    ),
+  );
+}
+
 void main() {
   setUpAll(() {
     setupFirebaseMocks();
@@ -13,8 +23,8 @@ void main() {
     testWidgets('LoginScreen should display correctly', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.byType(MaterialApp), findsOneWidget);
       // Heading text
@@ -27,8 +37,8 @@ void main() {
     testWidgets('SignupScreen should display correctly', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
-      await tester.pump();
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
+      await tester.pumpAndSettle();
 
       expect(find.byType(MaterialApp), findsOneWidget);
       // Heading
@@ -40,7 +50,7 @@ void main() {
     testWidgets('User can navigate from login to signup', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const MaterialApp(home: LoginScreen()));
+      await tester.pumpWidget(buildTestApp(const LoginScreen()));
       await tester.pumpAndSettle();
 
       // 'Register' is the TextButton link at the bottom of LoginScreen
@@ -59,7 +69,7 @@ void main() {
     testWidgets('User can navigate from signup to login', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(const MaterialApp(home: SignupScreen()));
+      await tester.pumpWidget(buildTestApp(const SignupScreen()));
       await tester.pumpAndSettle();
 
       // 'Sign In' is the TextButton link at the bottom of SignupScreen
