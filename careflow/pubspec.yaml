@@ -71,8 +71,9 @@ flutter_launcher_icons:
     image_path: assets/branding/app_icon.png
 
 flutter_native_splash:
-  color: "#F6F8FC"
+  color: "#F5F7FB"
   image: assets/branding/careflow_logo.png
   android_12:
-    color: "#F6F8FC"
+    color: "#F5F7FB"
     image: assets/branding/careflow_logo.png
+  web: false
