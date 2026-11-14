@@ -131,14 +131,16 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             // Top Navigation & Brand Header
             Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: AppSpacing.sm,
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.lg,
+                AppSpacing.sm,
+                AppSpacing.lg,
+                AppSpacing.sm,
               ),
               child: Wrap(
                 alignment: WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: AppSpacing.md,
+                spacing: AppSpacing.lg,
                 runSpacing: AppSpacing.sm,
                 children: [
                   // Logo + app name (stay together on one line)
@@ -165,18 +167,27 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   // Action button
                   if (!widget.returnToPrevious)
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => const GuestHomeScreen()),
-                        );
-                      },
-                      style: TextButton.styleFrom(
-                        foregroundColor: textSecondary,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.sm,
                       ),
-                      child: const Text('Explore as guest'),
+                      child: TextButton(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => const GuestHomeScreen()),
+                          );
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: textSecondary,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.md,
+                            vertical: AppSpacing.sm,
+                          ),
+                        ),
+                        child: const Text('Explore as guest'),
+                      ),
                     ),
                 ],
               ),
