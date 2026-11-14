@@ -487,7 +487,7 @@ class GuestHomeScreen extends StatelessWidget {
                 ),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   const Icon(
                     Icons.lock_outline_rounded,
@@ -499,7 +499,6 @@ class GuestHomeScreen extends StatelessWidget {
                     child: Text(
                       'HIPAA Compliant • End-to-End Encrypted Healthcare',
                       maxLines: 2,
-                      textAlign: TextAlign.center,
                       style: AppTypography.caption.copyWith(
                         color: textSecondary,
                         fontWeight: FontWeight.w600,

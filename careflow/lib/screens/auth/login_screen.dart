@@ -135,10 +135,15 @@ class _LoginScreenState extends State<LoginScreen> {
                 horizontal: AppSpacing.lg,
                 vertical: AppSpacing.sm,
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.sm,
                 children: [
+                  // Logo + app name (stay together on one line)
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       if (widget.returnToPrevious || Navigator.canPop(context))
                         IconButton(
@@ -150,33 +155,28 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(width: AppSpacing.xs),
                       const CareFlowLogo(size: 32),
                       const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Text(
-                          'CareFlow',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.section
-                              .copyWith(color: textPrimary),
-                        ),
+                      Text(
+                        'CareFlow',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.section.copyWith(color: textPrimary),
                       ),
                     ],
                   ),
+                  // Action button
                   if (!widget.returnToPrevious)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: TextButton(
-                        onPressed: () {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => const GuestHomeScreen()),
-                          );
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: textSecondary,
-                        ),
-                        child: const Text('Explore as guest'),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const GuestHomeScreen()),
+                        );
+                      },
+                      style: TextButton.styleFrom(
+                        foregroundColor: textSecondary,
                       ),
+                      child: const Text('Explore as guest'),
                     ),
                 ],
               ),
@@ -336,7 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                           // Switch to Register
                           Wrap(
-                            alignment: WrapAlignment.center,
+                            alignment: WrapAlignment.start,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             spacing: AppSpacing.xs,
                             children: [
@@ -374,7 +374,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 vertical: AppSpacing.sm,
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisAlignment: MainAxisAlignment.start,
                 children: [
                   const Icon(
                     Icons.shield_outlined,
@@ -386,7 +386,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Text(
                       '256-Bit SSL Encrypted Healthcare Portal',
                       maxLines: 2,
-                      textAlign: TextAlign.center,
                       style: AppTypography.caption.copyWith(
                         color: textSecondary,
                       ),

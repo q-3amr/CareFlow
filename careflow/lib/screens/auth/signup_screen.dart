@@ -544,7 +544,7 @@ class _SignupScreenState extends State<SignupScreen> {
 
                           // Login Link
                           Wrap(
-                            alignment: WrapAlignment.center,
+                            alignment: WrapAlignment.start,
                             crossAxisAlignment: WrapCrossAlignment.center,
                             spacing: AppSpacing.xs,
                             children: [
