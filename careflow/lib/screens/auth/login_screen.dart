@@ -298,15 +298,16 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                             horizontal: AppSpacing.md,
                             vertical: AppSpacing.sm,
                           ),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
                         child: const Text('Explore as guest'),
                       ).animate(
-                        effects: [
-                          FadeEffect(duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
-                          SlideEffect(begin: const Offset(0.2, 0), end: Offset.zero, duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
-                        ],
-                        // Disable if reduce motion
-                        controller: reduceMotion ? null : null,
+                        effects: reduceMotion
+                            ? []
+                            : [
+                                FadeEffect(duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
+                                SlideEffect(begin: const Offset(0.2, 0), end: Offset.zero, duration: 400.ms, delay: 200.ms, curve: Curves.easeOutCubic),
+                              ],
                       ),
                     ),
                 ],
@@ -341,6 +342,25 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                       SlideEffect(begin: const Offset(0, -0.5), end: Offset.zero, duration: 600.ms, delay: 100.ms, curve: Curves.easeOutCubic),
                     ],
             ),
+
+            // Optional subtle ambient motion (very low opacity)
+            if (!reduceMotion)
+              SizedBox(
+                height: 120,
+                child: Center(
+                  child: Opacity(
+                    opacity: 0.03,
+                    child: Lottie.asset(
+                      'assets/animations/loading_spinner.json',
+                      repeat: true,
+                      animate: true,
+                      width: 200,
+                      height: 200,
+                      filterQuality: FilterQuality.low,
+                    ),
+                  ),
+                ),
+              ),
 
             // Form Container
             Expanded(
@@ -434,11 +454,12 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
                           // Sign In Button (Morphing)
                           AnimatedBuilder(
-                            animation: _morphController,
+                            animation: Listenable.merge([_morphController, _successController]),
                             builder: (context, child) {
                               final isMorphing = _morphController.value > 0;
-                              final showSpinner = _morphController.value > 0.5 && _morphController.value < 1.0;
+                              final showSpinner = _morphController.value > 0.3 && _morphController.value < 0.9;
                               final showCheckmark = _successController.value > 0;
+                              final progress = _morphController.value;
 
                               return Transform.scale(
                                 scale: _buttonScaleAnimation.value,
@@ -449,7 +470,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                     children: [
                                       // Base button (fades out during morph)
                                       Opacity(
-                                        opacity: 1.0 - _morphController.value,
+                                        opacity: 1.0 - progress,
                                         child: AnimatedContainer(
                                           duration: const Duration(milliseconds: 300),
                                           curve: Curves.easeInOutCubic,
@@ -457,18 +478,21 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                           child: ElevatedButton(
                                             onPressed: isLoading ? null : handleLogin,
                                             style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppColors.primary,
+                                              foregroundColor: Colors.white,
                                               shape: RoundedRectangleBorder(
                                                 borderRadius: BorderRadius.circular(
                                                   isMorphing ? 24 : AppRadius.md,
                                                 ),
                                               ),
+                                              elevation: isMorphing ? 0 : 0,
                                             ),
                                             child: const Text('Sign In'),
                                           ),
                                         ),
                                       ),
 
-                                      // Loading spinner (Lottie)
+                                      // Loading spinner (Lottie) - appears during morph
                                       if (showSpinner)
                                         SizedBox(
                                           width: 48,
@@ -480,7 +504,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                                           ),
                                         ),
 
-                                      // Success checkmark (Lottie)
+                                      // Success checkmark (Lottie) - appears after success
                                       if (showCheckmark)
                                         SizedBox(
                                           width: 48,
@@ -693,24 +717,47 @@ class _AnimatedFormFieldState extends State<_AnimatedFormField> {
     final isFocused = _hasFocus;
     final isFilled = widget.controller.text.isNotEmpty;
 
-    // Border color logic
-    Color borderColor;
-    List<BoxShadow>? shadows;
+    // Color logic for background and borders
     Color fillColor;
+    Color borderColor;
+    Color focusedBorderColor;
+    Color errorBorderColor;
+    List<BoxShadow>? shadows;
 
     if (hasError) {
-      borderColor = AppColors.destructive;
       fillColor = isDark ? AppColors.destructiveSoftDark : AppColors.destructiveLight;
+      borderColor = AppColors.destructive.withValues(alpha: 0.5);
+      focusedBorderColor = AppColors.destructive;
+      errorBorderColor = AppColors.destructive;
+      shadows = null;
     } else if (isFocused) {
-      borderColor = AppColors.primary;
       fillColor = isDark ? AppColors.cardDark : AppColors.cardLight;
+      borderColor = divider;
+      focusedBorderColor = AppColors.primary;
+      errorBorderColor = AppColors.destructive;
       shadows = AppShadows.soft;
     } else if (isFilled) {
-      borderColor = AppColors.success.withValues(alpha: 0.3);
       fillColor = isDark ? AppColors.cardDark : AppColors.cardLight;
+      borderColor = AppColors.success.withValues(alpha: 0.3);
+      focusedBorderColor = AppColors.primary;
+      errorBorderColor = AppColors.destructive;
+      shadows = null;
     } else {
-      borderColor = divider;
       fillColor = isDark ? AppColors.cardTintDark : AppColors.cardTintLight;
+      borderColor = divider;
+      focusedBorderColor = AppColors.primary;
+      errorBorderColor = AppColors.destructive;
+      shadows = null;
+    }
+
+    // Label color
+    Color labelColor;
+    if (hasError) {
+      labelColor = AppColors.destructive;
+    } else if (isFocused) {
+      labelColor = AppColors.primary;
+    } else {
+      labelColor = textPrimary;
     }
 
     return Column(
@@ -719,9 +766,7 @@ class _AnimatedFormFieldState extends State<_AnimatedFormField> {
         // Label
         Text(
           widget.label,
-          style: AppTypography.label.copyWith(
-            color: hasError ? AppColors.destructive : (isFocused ? AppColors.primary : textPrimary),
-          ),
+          style: AppTypography.label.copyWith(color: labelColor),
         ).animate(
           effects: widget.reduceMotion
               ? []
@@ -733,14 +778,13 @@ class _AnimatedFormFieldState extends State<_AnimatedFormField> {
 
         const SizedBox(height: AppSpacing.sm),
 
-        // Field
+        // Field wrapper - only animates background color and shadow
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             color: fillColor,
             borderRadius: AppRadius.medium,
-            border: Border.all(color: borderColor, width: hasError || isFocused ? 2 : 1),
             boxShadow: shadows,
           ),
           child: TextField(
@@ -757,13 +801,30 @@ class _AnimatedFormFieldState extends State<_AnimatedFormField> {
               hintStyle: AppTypography.body.copyWith(color: textTertiary),
               prefixIcon: Icon(widget.prefixIcon, color: isFocused ? AppColors.primary : textTertiary),
               suffixIcon: widget.suffixIcon,
-              border: InputBorder.none,
+              filled: true,
+              fillColor: Colors.transparent, // Let AnimatedContainer handle background
               contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.md),
-              errorBorder: InputBorder.none,
-              focusedErrorBorder: InputBorder.none,
-              disabledBorder: InputBorder.none,
-              enabledBorder: InputBorder.none,
-              focusedBorder: InputBorder.none,
+              // Borders drawn by TextField itself - no clipping issues
+              enabledBorder: OutlineInputBorder(
+                borderRadius: AppRadius.medium,
+                borderSide: BorderSide(color: borderColor, width: 1),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: AppRadius.medium,
+                borderSide: BorderSide(color: focusedBorderColor, width: 2),
+              ),
+              errorBorder: OutlineInputBorder(
+                borderRadius: AppRadius.medium,
+                borderSide: BorderSide(color: errorBorderColor, width: 2),
+              ),
+              focusedErrorBorder: OutlineInputBorder(
+                borderRadius: AppRadius.medium,
+                borderSide: BorderSide(color: errorBorderColor, width: 2),
+              ),
+              disabledBorder: OutlineInputBorder(
+                borderRadius: AppRadius.medium,
+                borderSide: BorderSide(color: divider, width: 1),
+              ),
             ),
           ),
         ).animate(
