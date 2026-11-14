@@ -3,11 +3,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:provider/provider.dart';
 import 'auth_wrapper.dart';
-import 'services/database_service.dart'; // لحفظ الـ FCM Token عند تحديثه
-//لعرض الإشعارات على شاشة الهاتف محلياً (خاصة عندما يكون التطبيق مفتوحاً).
+import 'services/database_service.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'providers/chat_provider.dart';
 import 'providers/notification_provider.dart';
@@ -15,8 +13,24 @@ import 'providers/theme_provider.dart';
 import 'utils/app_theme.dart';
 import 'screens/common/chats_list_screen.dart';
 import 'screens/common/schedule_screen.dart';
+import 'screens/auth/splash_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+/// Temporary app that shows splash screen while Firebase initializes.
+class _SplashApp extends StatelessWidget {
+  const _SplashApp();
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      darkTheme: AppTheme.darkTheme,
+      home: const SplashScreen(),
+    );
+  }
+}
 
 //الدالة مكتوبة خارج main() ومسبوقة بـ @pragma('vm:entry-point') لكي يراها نظام التشغيل+
 //وتعمل كبرنامج مستقل (Isolate) حتى لو التطبيق غير شغال. ولهذا السبب بالتحديد
@@ -63,8 +77,6 @@ void handleNotificationNavigation(RemoteMessage message) {
 
 Future<void> main() async {
   final widgetsBinding = WidgetsFlutterBinding.ensureInitialized();
-  // Keeps the native splash visible while we initialize.
-  FlutterNativeSplash.preserve(widgetsBinding: widgetsBinding);
 
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -80,9 +92,13 @@ Future<void> main() async {
     ),
   );
 
-  // Firebase must be ready before runApp — the native splash covers the wait.
+  // Show custom splash screen while Firebase initializes
+  runApp(const _SplashApp());
+
+  // Initialize Firebase in background
   await _initFirebaseAndNotifications();
 
+  // Replace splash with main app
   runApp(
     MultiProvider(
       providers: [
@@ -99,9 +115,6 @@ Future<void> main() async {
       child: const MyApp(),
     ),
   );
-
-  // Remove the native splash once the app is on screen.
-  FlutterNativeSplash.remove();
 }
 
 Future<void> _initFirebaseAndNotifications() async {

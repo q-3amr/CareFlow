@@ -25,7 +25,6 @@ dependencies:
   flutter_markdown: ^0.7.7+1
   speech_to_text: ^7.3.0
   flutter_tts: ^4.2.5
-  flutter_native_splash: ^2.4.7
   provider: ^6.1.5+1
   uuid: ^4.5.3
   shared_preferences: ^2.5.6
@@ -69,11 +68,3 @@ flutter_launcher_icons:
   macos:
     generate: true
     image_path: assets/branding/app_icon.png
-
-flutter_native_splash:
-  color: "#F5F7FB"
-  image: assets/branding/careflow_logo.png
-  android_12:
-    color: "#F5F7FB"
-    image: assets/branding/careflow_logo.png
-  web: false
