@@ -725,8 +725,8 @@ class _AnimatedFormFieldState extends State<_AnimatedFormField> {
     List<BoxShadow>? shadows;
 
     if (hasError) {
-      fillColor = isDark ? AppColors.destructiveSoftDark : AppColors.destructiveLight;
-      borderColor = AppColors.destructive.withValues(alpha: 0.5);
+      fillColor = isDark ? AppColors.cardDark : AppColors.cardLight;
+      borderColor = AppColors.destructive;
       focusedBorderColor = AppColors.destructive;
       errorBorderColor = AppColors.destructive;
       shadows = null;
